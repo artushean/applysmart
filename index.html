@@ -52,6 +52,13 @@
               />
               <p class="hint" id="upload-status">Accepted formats: PDF and Word (.docx) (max 5MB).</p>
             </div>
+            <label for="title-focus">Job Title</label>
+            <input
+              id="title-focus"
+              name="titleFocus"
+              type="text"
+              placeholder="e.g., Senior Product Analyst"
+            />
             <p class="error" id="upload-error" role="alert" hidden></p>
             <p class="privacy-disclaimer">We never store or save your resume data.</p>
 
@@ -99,19 +106,11 @@
                 <option value="30">Senior level</option>
               </select>
 
-              <label for="title-focus">Role title / focus keywords</label>
-              <input
-                id="title-focus"
-                name="titleFocus"
-                type="text"
-                placeholder="e.g., Senior Product Analyst, Revenue Operations"
-              />
             </div>
 
             <button id="analyze-btn" type="submit">Analyze</button>
             <div id="loading" class="loading" hidden>
-              <span class="spinner" aria-hidden="true"></span>
-              Please wait while we analyze your fit...
+              Analyzing your fit...
             </div>
           </form>
         </section>
@@ -120,7 +119,7 @@
           <h2>Results</h2>
 
           <article class="score-card fit-card">
-            <h3>Fit Score <button type="button" class="tooltip" data-tip="Measures how well your resume matches required skills, experience, and qualifications.">?</button></h3>
+            <h3>Fit Score <span class="tooltip-wrap"><button type="button" class="tooltip" aria-label="Fit Score info">?</button><span class="tooltip-text">Measures how well your resume matches required skills, experience, and qualifications.</span></span></h3>
             <p id="fit-score" class="score-primary">0/100</p>
             <progress id="fit-progress" max="100" value="0"></progress>
             <p id="fit-level" class="score-note"></p>
@@ -129,13 +128,13 @@
           <p id="recommendation" class="recommendation"></p>
 
           <article class="score-card">
-            <h3>Hiring Score <button type="button" class="tooltip" data-tip="Measures how active the job posting appears based on freshness and posting quality signals.">?</button></h3>
+            <h3>Hiring Score <span class="tooltip-wrap"><button type="button" class="tooltip" aria-label="Hiring Score info">?</button><span class="tooltip-text">Measures how active the job posting appears based on freshness and posting quality signals.</span></span></h3>
             <p id="hiring-score" class="score-secondary">0/100</p>
             <p id="hiring-level" class="score-note"></p>
           </article>
 
           <article class="score-card">
-            <h3>Competition Score <button type="button" class="tooltip" data-tip="Higher score means less crowding and easier odds compared with highly saturated job postings.">?</button></h3>
+            <h3>Competition Score <span class="tooltip-wrap"><button type="button" class="tooltip" aria-label="Competition Score info">?</button><span class="tooltip-text">Higher score means less crowding and easier odds compared with highly saturated job postings.</span></span></h3>
             <p id="competition-score" class="score-secondary">0/100</p>
             <p id="competition-level" class="score-note"></p>
           </article>

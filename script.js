@@ -16,6 +16,33 @@ const LEADERSHIP_VERBS = ["lead", "manage", "oversee", "supervise", "direct", "m
 const HARD_SKILLS = [...TOOLS, ...DOMAIN_KEYWORDS, "cpa", "pmp", "rn", "pe", "security+", "cissp", "ccna"];
 const MANDATORY_PHRASES = ["must have", "required", "essential", "minimum", "mandatory", "must"];
 const CERTIFICATION_TERMS = ["certification", "certificate", "license", "licensed", "cpa", "pmp", "rn", "pe", "cissp", "ccna", "security+"];
+const MONTH_LOOKUP = {
+  jan: 0,
+  january: 0,
+  feb: 1,
+  february: 1,
+  fabruary: 1,
+  mar: 2,
+  march: 2,
+  apr: 3,
+  april: 3,
+  may: 4,
+  jun: 5,
+  june: 5,
+  jul: 6,
+  july: 6,
+  aug: 7,
+  august: 7,
+  sep: 8,
+  sept: 8,
+  september: 8,
+  oct: 9,
+  october: 9,
+  nov: 10,
+  november: 10,
+  dec: 11,
+  december: 11
+};
 
 const form = document.getElementById("analysis-form");
 const jobDescription = document.getElementById("job-description");
@@ -38,12 +65,6 @@ clearResumeBtn.addEventListener("click", () => {
   resumeFile.value = "";
   uploadStatus.textContent = "Accepted formats: PDF and Word (.docx) (max 5MB).";
   hideUploadError();
-});
-
-document.querySelectorAll(".tooltip").forEach((tooltipBtn) => {
-  tooltipBtn.addEventListener("click", () => {
-    tooltipBtn.setAttribute("title", tooltipBtn.dataset.tip || "");
-  });
 });
 
 resumeFile.addEventListener("change", async (event) => {
@@ -87,31 +108,34 @@ form.addEventListener("submit", async (event) => {
   loading.hidden = false;
   analyzeBtn.disabled = true;
 
-  autoSelectExperienceBand(jdRaw);
-  await new Promise((resolve) => setTimeout(resolve, 350));
+  try {
+    autoSelectExperienceBand(jdRaw);
+    await new Promise((resolve) => setTimeout(resolve, 350));
 
-  const jdSignals = extractJobSignals(jdRaw);
-  const resumeSignals = extractResumeSignals(resumeRaw);
-  const comparison = compareSignals(jdSignals, resumeSignals);
+    const jdSignals = extractJobSignals(jdRaw);
+    const resumeSignals = extractResumeSignals(resumeRaw);
+    const comparison = compareSignals(jdSignals, resumeSignals);
 
-  const hiring = calculateHiringScore(jdRaw);
-  const competition = calculateCompetitionScore();
+    const hiring = calculateHiringScore(jdRaw);
+    const competition = calculateCompetitionScore();
 
-  renderResults({
-    fitScore: comparison.fitScore,
-    hiringScore: hiring.score,
-    competitionScore: competition.score,
-    fitLevel: getFitLevel(comparison.fitScore),
-    hiringLevel: getHiringLevel(hiring.score),
-    competitionLevel: getCompetitionLevel(competition.score),
-    gaps: comparison.gaps,
-    signals: [...comparison.notes, ...hiring.notes, ...competition.notes],
-    recommendation: getRecommendation(comparison.fitScore, hiring.score, competition.score, comparison.gaps)
-  });
+    renderResults({
+      fitScore: comparison.fitScore,
+      hiringScore: hiring.score,
+      competitionScore: competition.score,
+      fitLevel: getFitLevel(comparison.fitScore),
+      hiringLevel: getHiringLevel(hiring.score),
+      competitionLevel: getCompetitionLevel(competition.score),
+      gaps: comparison.gaps,
+      signals: [...comparison.notes, ...hiring.notes, ...competition.notes],
+      recommendation: getRecommendation(comparison.fitScore, hiring.score, competition.score, comparison.gaps)
+    });
 
-  loading.hidden = true;
-  analyzeBtn.disabled = false;
-  mainLayout.classList.remove("results-hidden");
+    mainLayout.classList.remove("results-hidden");
+  } finally {
+    loading.hidden = true;
+    analyzeBtn.disabled = false;
+  }
 });
 
 function validateFile(file) {
@@ -389,8 +413,68 @@ function extractMaxYearsRequirement(text) {
 }
 
 function extractMaxYearsMentioned(text) {
+  const dateRangeYears = calculateYearsFromDateRanges(text);
+  if (dateRangeYears > 0) return dateRangeYears;
+
   const matches = [...text.matchAll(/(\d+)\+?\s*(?:years|yrs)/g)].map((m) => Number(m[1]));
   return matches.length ? Math.max(...matches) : 0;
+}
+
+function calculateYearsFromDateRanges(text) {
+  const ranges = extractDateRanges(text);
+  if (!ranges.length) return 0;
+  const merged = mergeMonthRanges(ranges);
+  const totalMonths = merged.reduce((acc, range) => acc + (range.end - range.start + 1), 0);
+  return Math.floor(totalMonths / 12);
+}
+
+function extractDateRanges(text) {
+  const monthPattern = "(?:jan(?:uary)?|feb(?:ruary)?|fabruary|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)";
+  const rangeRegex = new RegExp(`\\b(${monthPattern})\\s+(\\d{4})\\s*(?:-|to|–|—)\\s*(present|current|now|${monthPattern}\\s+\\d{4})`, "g");
+  const currentDate = new Date();
+  const ranges = [];
+
+  for (const match of text.matchAll(rangeRegex)) {
+    const startMonth = MONTH_LOOKUP[match[1]];
+    const startYear = Number(match[2]);
+    const endToken = match[3];
+
+    let endMonth;
+    let endYear;
+
+    if (/^(present|current|now)$/.test(endToken)) {
+      endMonth = currentDate.getMonth();
+      endYear = currentDate.getFullYear();
+    } else {
+      const endParts = endToken.split(/\s+/);
+      endMonth = MONTH_LOOKUP[endParts[0]];
+      endYear = Number(endParts[1]);
+    }
+
+    if (Number.isInteger(startMonth) && Number.isInteger(endMonth) && Number.isInteger(startYear) && Number.isInteger(endYear)) {
+      const start = startYear * 12 + startMonth;
+      const end = endYear * 12 + endMonth;
+      if (end >= start) ranges.push({ start, end });
+    }
+  }
+
+  return ranges;
+}
+
+function mergeMonthRanges(ranges) {
+  const sorted = [...ranges].sort((a, b) => a.start - b.start);
+  const merged = [];
+
+  sorted.forEach((range) => {
+    const last = merged.at(-1);
+    if (!last || range.start > last.end + 1) {
+      merged.push({ ...range });
+      return;
+    }
+    last.end = Math.max(last.end, range.end);
+  });
+
+  return merged;
 }
 
 function extractMatches(text, dictionary) {
