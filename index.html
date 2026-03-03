@@ -3,110 +3,120 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Listing Engagement Risk Analyzer</title>
+    <title>Application Fit & Momentum Analyzer</title>
     <link rel="stylesheet" href="styles.css" />
+    <script src="https://unpkg.com/pdfjs-dist@4.7.76/build/pdf.min.mjs" type="module"></script>
+    <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
   </head>
   <body>
     <main class="container">
       <header>
-        <h1>Listing Engagement Risk Analyzer</h1>
+        <h1>Application Fit & Momentum Analyzer</h1>
         <p>
-          A decision-support tool for job seekers to estimate how much effort to
-          invest in an application.
+          Compare job descriptions and resumes to estimate application fit and
+          role momentum.
         </p>
       </header>
 
-      <section class="card disclaimer">
-        <h2>Important Disclaimer</h2>
-        <p>
-          This tool estimates listing engagement risk based on posting patterns
-          and language structure. It does <strong>not</strong> determine employer
-          intent and does <strong>not</strong> label listings as fake or ghost
-          jobs.
-        </p>
-        <p>
-          To reduce legal and privacy risk, this MVP does not collect company
-          names, does not scrape job platforms, and relies only on user-provided
-          listing details.
-        </p>
-      </section>
-
       <section class="card form-card">
-        <h2>Paste Listing Details</h2>
-        <form id="risk-form">
-          <label for="description">Job description text</label>
-          <textarea
-            id="description"
-            name="description"
-            rows="10"
-            placeholder="Paste the full job description here..."
-            required
-          ></textarea>
+        <h2>Analyze Job + Resume</h2>
+        <form id="analysis-form">
+          <label for="job-description">Job Description</label>
+          <div class="input-tools">
+            <textarea
+              id="job-description"
+              name="jobDescription"
+              rows="10"
+              placeholder="Paste the full job description here..."
+              required
+            ></textarea>
+            <button type="button" class="secondary" id="clear-job">Clear</button>
+          </div>
+
+          <label for="resume-text">Resume</label>
+          <div class="input-tools">
+            <textarea
+              id="resume-text"
+              name="resumeText"
+              rows="10"
+              placeholder="Paste your resume text or upload a file..."
+              required
+            ></textarea>
+            <div class="button-row">
+              <button type="button" class="secondary" id="clear-resume">Clear</button>
+              <label class="upload-btn" for="resume-file">Upload Resume</label>
+              <input
+                type="file"
+                id="resume-file"
+                accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+              />
+            </div>
+          </div>
+          <p class="hint" id="upload-status">Accepted formats: PDF, DOCX, TXT (max 5MB).</p>
+          <p class="error" id="upload-error" role="alert" hidden></p>
+          <p class="privacy-disclaimer">
+            Privacy notice: Resumes and job descriptions are processed only in your browser and are not stored or saved. Uploaded files are not retained, and no account creation is required.
+          </p>
 
           <div class="grid">
             <label>
               Posting age
               <select id="posting-age" name="postingAge">
-                <option value="0">Less than 14 days</option>
-                <option value="8">14-30 days</option>
-                <option value="16">31-60 days</option>
-                <option value="24">60+ days</option>
+                <option value="0">0-7 days</option>
+                <option value="8">8-14 days</option>
+                <option value="24">15-30 days</option>
+                <option value="40">31+ days</option>
               </select>
             </label>
 
             <label>
-              Repost frequency
-              <select id="repost-frequency" name="repostFrequency">
-                <option value="0">Unknown / no evidence</option>
-                <option value="8">Reposted once</option>
-                <option value="16">Reposted multiple times</option>
+              Repost status
+              <select id="repost-status" name="repostStatus">
+                <option value="0">Unknown / not reposted</option>
+                <option value="12">Likely reposted once</option>
+                <option value="20">Reposted multiple times</option>
               </select>
             </label>
 
             <label>
-              Salary transparency
-              <select id="salary-presence" name="salaryPresence">
-                <option value="10">No salary range shown</option>
-                <option value="0">Salary range shown</option>
+              Application path
+              <select id="application-path" name="applicationPath">
+                <option value="-8">Direct company careers page</option>
+                <option value="4">External application page</option>
+                <option value="8">Easy Apply</option>
               </select>
             </label>
 
             <label>
-              Multi-location duplication
-              <select id="multi-location" name="multiLocation">
-                <option value="0">Single location</option>
-                <option value="6">2-3 locations for same role</option>
-                <option value="10">4+ locations for same role</option>
-              </select>
-            </label>
-
-            <label>
-              Experience level match to title
-              <select id="experience-match" name="experienceMatch">
-                <option value="0">Appears aligned</option>
-                <option value="6">Some mismatch</option>
-                <option value="12">Strong mismatch</option>
+              Salary range width
+              <select id="salary-width" name="salaryWidth">
+                <option value="0">Not listed / tight range</option>
+                <option value="4">Moderately wide range</option>
+                <option value="8">Very wide range</option>
               </select>
             </label>
           </div>
 
-          <button type="submit">Analyze Listing Risk</button>
+          <button type="submit">Analyze</button>
         </form>
       </section>
 
       <section class="card results" id="results" hidden>
-        <h2>Result</h2>
-        <p class="score" id="score"></p>
-        <p id="band"></p>
+        <h2>Analysis Result</h2>
+        <div class="score-grid">
+          <p><strong>Fit Score:</strong> <span id="fit-score"></span></p>
+          <p><strong>Momentum Score:</strong> <span id="momentum-score"></span></p>
+          <p><strong>Final Score:</strong> <span id="final-score"></span></p>
+        </div>
+        <p id="fit-level"></p>
+        <p id="momentum-level"></p>
+        <p id="recommendation" class="recommendation"></p>
 
-        <h3>Why this score?</h3>
-        <ul id="reasons"></ul>
+        <h3>Detected Gaps</h3>
+        <ul id="gaps"></ul>
 
-        <h3>How to use this</h3>
-        <p>
-          Use this score to prioritize effort (time spent tailoring resume,
-          writing cover letter, and follow-up). It is directional, not absolute.
-        </p>
+        <h3>Signal Breakdown</h3>
+        <ul id="signals"></ul>
       </section>
     </main>
 
