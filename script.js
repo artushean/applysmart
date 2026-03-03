@@ -80,7 +80,8 @@ form.addEventListener("submit", async (event) => {
 
     const jdSkills = extractJobSkills(jdRaw, skillEngine);
     const resumeSkills = extractResumeSkills(resumeRaw, skillEngine);
-    const comparison = compareSkillSets(jdSkills, resumeSkills);
+    const comparison = compareSkillSets(jdSkills, resumeSkills, normalizeText(resumeRaw));
+    const resumeStrength = calculateResumeStrength(comparison);
 
     const hiring = calculateHiringScore(jdRaw);
     const opportunity = calculateOpportunityStrength(jdRaw);
@@ -92,7 +93,7 @@ form.addEventListener("submit", async (event) => {
       fitLevel: getFitLevel(comparison.fitScore, comparison.requiredMatchPercent),
       hiringLevel: getHiringLevel(hiring.score),
       gaps: comparison.gaps,
-      signals: [...comparison.notes, ...hiring.notes, ...opportunity.notes],
+      resumeStrength,
       recommendation: getRecommendation(comparison.fitScore, comparison.requiredMatchPercent, hiring.score, opportunity.score)
     });
 
@@ -200,8 +201,14 @@ function extractJobSkills(jobText, skillEngine) {
     const extracted = extractSkillsFromLine(normalizedLine, skillEngine);
     if (!extracted.length) return;
 
-    const target = mode === "optional" ? optional : required;
+    const isRequiredLine = /\b(required|must have|must|minimum|need to|at least)\b/.test(normalizedLine);
+    const isOptionalLine = /\b(preferred|nice to have|bonus|plus|good to have)\b/.test(normalizedLine);
+    const target = (mode === "optional" || isOptionalLine) && !isRequiredLine ? optional : required;
     extracted.forEach((skill) => target.add(skill));
+  });
+
+  extractSkillsFromLine(normalizeText(jobText), skillEngine).forEach((skill) => {
+    if (!required.has(skill) && !optional.has(skill)) optional.add(skill);
   });
 
   return {
@@ -229,6 +236,8 @@ function extractResumeSkills(resume, skillEngine) {
     }
   });
 
+  extractSkillsFromLine(normalizeText(resume), skillEngine).forEach((skill) => found.add(skill));
+
   return [...found];
 }
 
@@ -250,7 +259,7 @@ function extractSkillsFromLine(normalizedLine, skillEngine) {
   return [...matched];
 }
 
-function compareSkillSets(jobSkills, resumeSkills) {
+function compareSkillSets(jobSkills, resumeSkills, normalizedResumeText) {
   const resumeSet = new Set(resumeSkills);
   const requiredMatched = jobSkills.required.filter((skill) => resumeSet.has(skill));
   const optionalMatched = jobSkills.optional.filter((skill) => resumeSet.has(skill));
@@ -269,9 +278,17 @@ function compareSkillSets(jobSkills, resumeSkills) {
     ? Math.round((optionalMatched.length / jobSkills.optional.length) * 100)
     : 100;
 
-  const gaps = missingRequired.length
-    ? [`Critical Gap: Missing required skills: ${missingRequired.join(", ")}.`]
-    : ["No critical required-skill gaps detected."];
+  const scoredMissing = missingRequired
+    .map((skill) => ({ skill, confidence: estimateMissingConfidence(skill, normalizedResumeText) }))
+    .sort((a, b) => b.confidence - a.confidence);
+
+  const likelyMissing = scoredMissing.filter((item) => item.confidence >= 70).map((item) => item.skill);
+  const maybeMissing = scoredMissing.filter((item) => item.confidence >= 40 && item.confidence < 70).map((item) => item.skill);
+
+  const gaps = [];
+  if (likelyMissing.length) gaps.push(`Likely missing required skills: ${likelyMissing.join(", ")}.`);
+  if (maybeMissing.length) gaps.push(`Possibly missing skills (verify wording/synonyms): ${maybeMissing.join(", ")}.`);
+  if (!gaps.length) gaps.push("No required skill gaps detected.");
 
   return {
     fitScore,
@@ -283,8 +300,42 @@ function compareSkillSets(jobSkills, resumeSkills) {
       `Optional skill match: ${optionalMatched.length}/${jobSkills.optional.length || 0} (${optionalMatchPercent}%).`,
       "Fit uses weighted scoring: required skills have 2x weight vs optional skills.",
       "Skill matching uses normalized ESCO preferred labels and alternative labels."
-    ]
+    ],
+    requiredMatchedCount: requiredMatched.length,
+    requiredTotalCount: jobSkills.required.length,
+    optionalMatchedCount: optionalMatched.length,
+    optionalTotalCount: jobSkills.optional.length
   };
+}
+
+function estimateMissingConfidence(skill, normalizedResumeText) {
+  if (!normalizedResumeText || !skill) return 100;
+  const parts = skill.split(" ").filter((part) => part.length > 2);
+  if (!parts.length) return 100;
+  const matchedParts = parts.filter((part) => normalizedResumeText.includes(part)).length;
+  const ratio = matchedParts / parts.length;
+  return Math.round((1 - ratio) * 100);
+}
+
+function calculateResumeStrength(comparison) {
+  const notes = [
+    `Core skill coverage: ${comparison.requiredMatchedCount}/${comparison.requiredTotalCount || 0}.`,
+    `Secondary skill coverage: ${comparison.optionalMatchedCount}/${comparison.optionalTotalCount || 0}.`
+  ];
+
+  if (comparison.requiredMatchPercent >= 80) {
+    notes.push("Your resume strongly aligns with the role's core requirements.");
+  } else if (comparison.requiredMatchPercent >= 60) {
+    notes.push("Your resume has moderate core alignment; tailor it to close top gaps.");
+  } else {
+    notes.push("Your resume does not yet show enough of the required skills for this role.");
+  }
+
+  if (comparison.optionalMatchPercent >= 50) {
+    notes.push("Optional skill alignment is a plus and can improve interview chances.");
+  }
+
+  return notes;
 }
 
 function calculateHiringScore(jobText) {
@@ -403,7 +454,7 @@ function normalizeText(text) {
     .trim();
 }
 
-function renderResults({ fitScore, hiringScore, opportunity, fitLevel, hiringLevel, gaps, signals, recommendation }) {
+function renderResults({ fitScore, hiringScore, opportunity, fitLevel, hiringLevel, gaps, resumeStrength, recommendation }) {
   document.getElementById("fit-score").textContent = `${fitScore}/100`;
   document.getElementById("hiring-score").textContent = `${hiringScore}/100`;
   document.getElementById("opportunity-level").textContent = `${opportunity.label} (${opportunity.score}/100)`;
@@ -425,12 +476,12 @@ function renderResults({ fitScore, hiringScore, opportunity, fitLevel, hiringLev
     gapsList.appendChild(li);
   });
 
-  const signalsList = document.getElementById("signals");
-  signalsList.innerHTML = "";
-  signals.forEach((signal) => {
+  const resumeStrengthList = document.getElementById("resume-strength");
+  resumeStrengthList.innerHTML = "";
+  resumeStrength.forEach((signal) => {
     const li = document.createElement("li");
     li.textContent = signal;
-    signalsList.appendChild(li);
+    resumeStrengthList.appendChild(li);
   });
 
   document.getElementById("results").hidden = false;
