@@ -1,47 +1,39 @@
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
 const SUPPORTED_EXTENSIONS = ["pdf", "docx"];
-const FIT_GATE_THRESHOLD = 50;
+const FIT_GATE_THRESHOLD = 60;
 const PDF_WORKER_SRC = "https://unpkg.com/pdfjs-dist@4.7.76/build/pdf.worker.min.mjs";
 
-const DOMAIN_KEYWORDS = [
-  "fintech", "healthcare", "edtech", "ecommerce", "saas", "cybersecurity", "cloud", "ai", "machine learning", "data", "mobile", "payments", "compliance", "devops", "product"
-];
+const SECTION_REQUIRED_KEYWORDS = ["requirement", "required", "must", "minimum qualification", "qualifications", "experience with"];
+const SECTION_OPTIONAL_KEYWORDS = ["preferred", "nice to have", "bonus", "plus", "good to have"];
+const SECTION_IGNORE_KEYWORDS = ["about us", "about the company", "benefits", "equal opportunity", "eeo", "who we are", "our culture"];
+const RESUME_SECTION_KEYWORDS = ["skills", "tools", "technology", "technologies", "certifications", "certificates"];
 
-const TOOLS = [
-  "javascript", "typescript", "python", "java", "react", "node", "sql", "aws", "azure", "gcp", "docker", "kubernetes", "terraform", "tableau", "power bi", "salesforce", "jira", "figma", "excel", "git"
-];
-
-const SENIORITY_LEVELS = ["intern", "junior", "mid", "senior", "lead", "staff", "principal", "manager", "director", "vp", "head"];
-const LEADERSHIP_VERBS = ["lead", "manage", "oversee", "supervise", "direct", "mentor", "own"];
-const HARD_SKILLS = [...TOOLS, ...DOMAIN_KEYWORDS, "cpa", "pmp", "rn", "pe", "security+", "cissp", "ccna"];
-const MANDATORY_PHRASES = ["must have", "required", "essential", "minimum", "mandatory", "must"];
-const CERTIFICATION_TERMS = ["certification", "certificate", "license", "licensed", "cpa", "pmp", "rn", "pe", "cissp", "ccna", "security+"];
-const MONTH_LOOKUP = {
-  jan: 0,
-  january: 0,
-  feb: 1,
-  february: 1,
-  fabruary: 1,
-  mar: 2,
-  march: 2,
-  apr: 3,
-  april: 3,
-  may: 4,
-  jun: 5,
-  june: 5,
-  jul: 6,
-  july: 6,
-  aug: 7,
-  august: 7,
-  sep: 8,
-  sept: 8,
-  september: 8,
-  oct: 9,
-  october: 9,
-  nov: 10,
-  november: 10,
-  dec: 11,
-  december: 11
+const SKILL_VARIANTS = {
+  js: ["javascript", "java script", "js"],
+  ts: ["typescript", "type script", "ts"],
+  nodejs: ["node.js", "node js", "nodejs", "node"],
+  react: ["react", "react.js", "reactjs"],
+  python: ["python"],
+  java: ["java"],
+  sql: ["sql", "mysql", "mssql"],
+  postgres: ["postgres", "postgresql"],
+  mongodb: ["mongodb", "mongo db"],
+  aws: ["aws", "amazon web services"],
+  azure: ["azure", "microsoft azure"],
+  gcp: ["gcp", "google cloud", "google cloud platform"],
+  docker: ["docker"],
+  kubernetes: ["kubernetes", "k8s"],
+  terraform: ["terraform"],
+  git: ["git", "github", "gitlab", "bitbucket"],
+  excel: ["excel", "ms excel", "microsoft excel"],
+  powerbi: ["power bi", "powerbi"],
+  tableau: ["tableau"],
+  salesforce: ["salesforce"],
+  jira: ["jira"],
+  figma: ["figma"],
+  cissp: ["cissp"],
+  ccna: ["ccna"],
+  pmp: ["pmp"]
 };
 
 const form = document.getElementById("analysis-form");
@@ -109,26 +101,24 @@ form.addEventListener("submit", async (event) => {
   analyzeBtn.disabled = true;
 
   try {
-    autoSelectExperienceBand(jdRaw);
-    await new Promise((resolve) => setTimeout(resolve, 350));
+    await new Promise((resolve) => setTimeout(resolve, 200));
 
-    const jdSignals = extractJobSignals(jdRaw);
-    const resumeSignals = extractResumeSignals(resumeRaw);
-    const comparison = compareSignals(jdSignals, resumeSignals);
+    const jdSkills = extractJobSkills(jdRaw);
+    const resumeSkills = extractResumeSkills(resumeRaw);
+    const comparison = compareSkillSets(jdSkills, resumeSkills);
 
     const hiring = calculateHiringScore(jdRaw);
-    const competition = calculateCompetitionScore();
+    const effort = calculateApplicationEffort();
 
     renderResults({
       fitScore: comparison.fitScore,
       hiringScore: hiring.score,
-      competitionScore: competition.score,
-      fitLevel: getFitLevel(comparison.fitScore),
+      effort,
+      fitLevel: getFitLevel(comparison.fitScore, comparison.requiredMatchPercent),
       hiringLevel: getHiringLevel(hiring.score),
-      competitionLevel: getCompetitionLevel(competition.score),
       gaps: comparison.gaps,
-      signals: [...comparison.notes, ...hiring.notes, ...competition.notes],
-      recommendation: getRecommendation(comparison.fitScore, hiring.score, competition.score, comparison.gaps)
+      signals: [...comparison.notes, ...hiring.notes, ...effort.notes],
+      recommendation: getRecommendation(comparison.fitScore, comparison.requiredMatchPercent, hiring.score, effort.score)
     });
 
     mainLayout.classList.remove("results-hidden");
@@ -170,7 +160,7 @@ async function extractTextFromFile(file) {
     }
     return text;
   }
-  throw new Error("Unsupported file type.");
+  throw new Error("Unsupported file format.");
 }
 
 async function getPdfParser() {
@@ -181,90 +171,123 @@ async function getPdfParser() {
   return pdfjs;
 }
 
-function autoSelectExperienceBand(jobText) {
-  const experienceBand = document.getElementById("experience-band");
-  experienceBand.value = detectExperienceBand(jobText);
-}
+function extractJobSkills(jobText) {
+  const lines = jobText.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  const required = new Set();
+  const optional = new Set();
 
-function detectExperienceBand(jobText) {
-  const normalized = normalize(jobText);
-  const requiredYears = extractMaxYearsRequirement(normalized);
-  if (/\b(junior|entry[-\s]?level|associate|intern)\b/.test(normalized) || (requiredYears > 0 && requiredYears <= 2)) {
-    return "12";
-  }
-  if (/\b(senior|lead|principal|staff|manager|director|head|vp)\b/.test(normalized) || requiredYears >= 5) {
-    return "30";
-  }
-  return "20";
-}
+  let mode = "neutral";
+  lines.forEach((line) => {
+    const normalizedLine = normalizeText(line);
+    if (!normalizedLine) return;
 
-function extractJobSignals(text) {
-  const normalized = normalize(text);
+    if (isSectionHeader(normalizedLine, SECTION_IGNORE_KEYWORDS)) {
+      mode = "ignore";
+      return;
+    }
+    if (isSectionHeader(normalizedLine, SECTION_REQUIRED_KEYWORDS)) {
+      mode = "required";
+      return;
+    }
+    if (isSectionHeader(normalizedLine, SECTION_OPTIONAL_KEYWORDS)) {
+      mode = "optional";
+      return;
+    }
+
+    if (mode === "ignore") return;
+
+    const extracted = extractSkillsFromLine(normalizedLine);
+    if (!extracted.length) return;
+
+    const target = mode === "optional" ? optional : required;
+    extracted.forEach((skill) => target.add(skill));
+  });
+
   return {
-    requiredYears: extractMaxYearsRequirement(normalized),
-    domainKeywords: extractMatches(normalized, DOMAIN_KEYWORDS),
-    tools: extractMatches(normalized, TOOLS),
-    seniority: extractSeniority(normalized),
-    leadershipVerbs: extractMatches(normalized, LEADERSHIP_VERBS),
-    mandatoryRequirements: extractMandatoryRequirements(normalized),
-    requiredCertifications: extractCertifications(normalized),
-    keywordProfile: extractKeywordProfile(normalized)
+    required: [...required],
+    optional: [...optional].filter((skill) => !required.has(skill))
   };
 }
 
-function extractResumeSignals(text) {
-  const normalized = normalize(text);
-  return {
-    years: extractMaxYearsMentioned(normalized),
-    domainKeywords: extractMatches(normalized, DOMAIN_KEYWORDS),
-    tools: extractMatches(normalized, TOOLS),
-    seniority: extractSeniority(normalized),
-    leadershipVerbs: extractMatches(normalized, LEADERSHIP_VERBS),
-    hardSkills: extractHardRequirements(normalized),
-    certifications: extractCertifications(normalized),
-    keywordProfile: extractKeywordProfile(normalized)
-  };
+function extractResumeSkills(resume) {
+  const lines = resume.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  const found = new Set();
+  let sectionBoost = false;
+
+  lines.forEach((line) => {
+    const normalizedLine = normalizeText(line);
+    if (!normalizedLine) return;
+
+    sectionBoost = RESUME_SECTION_KEYWORDS.some((keyword) => normalizedLine.includes(keyword)) || sectionBoost;
+
+    const direct = extractSkillsFromLine(normalizedLine);
+    direct.forEach((skill) => found.add(skill));
+
+    if (/experience with|worked on|proficient in/.test(normalizedLine) || sectionBoost) {
+      direct.forEach((skill) => found.add(skill));
+    }
+  });
+
+  return [...found];
 }
 
-function compareSignals(job, resume) {
-  const gaps = [];
-  const notes = [];
+function extractSkillsFromLine(normalizedLine) {
+  const skills = [];
+  Object.entries(SKILL_VARIANTS).forEach(([canonical, variants]) => {
+    const hasMatch = variants.some((variant) => normalizedLine.includes(normalizeText(variant)));
+    if (hasMatch) skills.push(canonical);
+  });
+  return [...new Set(skills)];
+}
 
-  const yearsAlignment = scoreYearsAlignment(job.requiredYears, resume.years, gaps, notes);
-  const mandatoryCoverage = scoreMandatoryCoverage(job.mandatoryRequirements, resume, gaps, notes);
-  const keywordAlignment = scoreKeywordOverlap(job.keywordProfile, resume.keywordProfile, notes);
-  const certAlignment = scoreCertificationAlignment(job.requiredCertifications, resume.certifications, gaps, notes);
-  const seniorityAlignment = scoreSeniorityAlignment(job, resume, notes);
+function compareSkillSets(jobSkills, resumeSkills) {
+  const resumeSet = new Set(resumeSkills);
+  const requiredMatched = jobSkills.required.filter((skill) => resumeSet.has(skill));
+  const optionalMatched = jobSkills.optional.filter((skill) => resumeSet.has(skill));
+  const missingRequired = jobSkills.required.filter((skill) => !resumeSet.has(skill));
 
-  const fitScore = Math.max(0, Math.min(100, Math.round(
-    (yearsAlignment * 0.3) +
-    (mandatoryCoverage * 0.25) +
-    (keywordAlignment * 0.2) +
-    (certAlignment * 0.15) +
-    (seniorityAlignment * 0.1)
-  )));
+  const requiredWeight = jobSkills.required.length * 2;
+  const optionalWeight = jobSkills.optional.length;
+  const possible = requiredWeight + optionalWeight;
+  const points = requiredMatched.length * 2 + optionalMatched.length;
+  const fitScore = possible > 0 ? Math.round((points / possible) * 100) : 65;
 
-  if (keywordAlignment < 30) {
-    gaps.push("Critical Gap: Domain mismatch risk due to low job/resume keyword overlap.");
-  }
+  const requiredMatchPercent = jobSkills.required.length
+    ? Math.round((requiredMatched.length / jobSkills.required.length) * 100)
+    : 100;
+  const optionalMatchPercent = jobSkills.optional.length
+    ? Math.round((optionalMatched.length / jobSkills.optional.length) * 100)
+    : 100;
 
-  notes.push("Fit is the primary gatekeeper score. If this is weak, the role is not recommended.");
-  return { fitScore, gaps, notes };
+  const gaps = missingRequired.length
+    ? [`Critical Gap: Missing required skills: ${missingRequired.join(", ")}.`]
+    : ["No critical required-skill gaps detected."];
+
+  return {
+    fitScore,
+    requiredMatchPercent,
+    optionalMatchPercent,
+    gaps,
+    notes: [
+      `Required skill match: ${requiredMatched.length}/${jobSkills.required.length || 0} (${requiredMatchPercent}%).`,
+      `Optional skill match: ${optionalMatched.length}/${jobSkills.optional.length || 0} (${optionalMatchPercent}%).`,
+      "Fit uses weighted scoring: required skills have 2x weight vs optional skills.",
+      "Normalized skill aliases (e.g., Node.js/node js → nodejs, React.js → react, MS Excel → excel)."
+    ]
+  };
 }
 
 function calculateHiringScore(jobText) {
   const notes = [];
   const postingAge = Number(document.getElementById("posting-age").value);
   const repostStatus = Number(document.getElementById("repost-status").value);
-  const applicationPath = Number(document.getElementById("application-path").value);
   const salaryTransparency = Number(document.getElementById("salary-transparency").value);
 
-  let deductions = postingAge + repostStatus + applicationPath + salaryTransparency;
-  const requirementCount = (normalize(jobText).match(/\b(required|must|need to|minimum|at least|preferred)\b/g) || []).length;
+  let deductions = postingAge + repostStatus + salaryTransparency;
+  const requirementCount = (normalizeText(jobText).match(/\b(required|must|need to|minimum|at least|preferred)\b/g) || []).length;
 
   if (postingAge >= 24) notes.push("Older posting age reduced Hiring Score.");
   if (repostStatus >= 12) notes.push("Repost signal reduced Hiring Score.");
-  if (applicationPath >= 10) notes.push("Easy Apply suggests broader funnel and lower responsiveness.");
   if (salaryTransparency >= 10) notes.push("No salary transparency lowered Hiring Score.");
   if (requirementCount < 5) {
     deductions -= 4;
@@ -274,55 +297,37 @@ function calculateHiringScore(jobText) {
   return { score: Math.max(0, Math.min(100, 100 - deductions)), notes };
 }
 
-function calculateCompetitionScore() {
+function calculateApplicationEffort() {
   const notes = [];
-  const workMode = Number(document.getElementById("work-mode").value);
-  const experienceBand = Number(document.getElementById("experience-band").value);
-  const titleFocus = normalize(document.getElementById("title-focus").value);
-  const applicationPath = Number(document.getElementById("application-path").value);
-  const titleSpecificity = getTitleSpecificityScore(titleFocus);
+  const easyApply = Number(document.getElementById("easy-apply").value);
+  const coverLetter = Number(document.getElementById("cover-letter").value);
+  const accountRequired = Number(document.getElementById("account-required").value);
+  const resumeReentry = Number(document.getElementById("resume-reentry").value);
+  const externalRedirect = Number(document.getElementById("external-redirect").value);
 
-  let score = workMode + experienceBand + titleSpecificity - applicationPath;
-  if (workMode <= 12) notes.push("Remote role increased expected crowding.");
-  if (experienceBand <= 12) notes.push("Junior-level role increased expected applicant volume.");
-  if (experienceBand >= 30) notes.push("Senior-level role reduced expected applicant volume.");
-  if (titleSpecificity <= 10) notes.push("Broad role title/focus increased expected competition.");
-  if (applicationPath >= 10) notes.push("Easy Apply increased crowding pressure.");
+  const score = Math.min(100, easyApply + coverLetter + accountRequired + resumeReentry + externalRedirect);
 
-  score = Math.max(0, Math.min(100, score));
-  notes.push("Higher Competition Score means less crowding and easier odds.");
-  return { score, notes };
+  if (easyApply) notes.push("Easy Apply usually increases crowding and lowers visibility.");
+  if (coverLetter) notes.push("Mandatory cover letter increases application time.");
+  if (accountRequired) notes.push("Account creation adds friction before submission.");
+  if (resumeReentry) notes.push("Manual resume re-entry adds substantial effort.");
+  if (externalRedirect) notes.push("External redirect introduces extra steps.");
+
+  return {
+    score,
+    label: getEffortLabel(score),
+    notes
+  };
 }
 
-function getTitleSpecificityScore(titleFocus) {
-  if (!titleFocus) return 16;
-  const wordCount = titleFocus.split(/\s+/).filter(Boolean).length;
-  if (wordCount >= 4) return 28;
-  if (wordCount >= 2) return 20;
-  return 10;
-}
-
-function getRecommendation(fitScore, hiringScore, competitionScore, gaps) {
-  const hasCritical = gaps.some((gap) => gap.startsWith("Critical Gap"));
-  if (fitScore < FIT_GATE_THRESHOLD || hasCritical) {
-    return { label: "Not Recommended", tone: "low" };
+function getFitLevel(score, requiredMatchPercent) {
+  if (requiredMatchPercent < 50 || score < 60) {
+    return "Low fit: required skill coverage is below threshold; not recommended.";
   }
-
-  if (hiringScore >= 70 && competitionScore >= 60) {
-    return { label: "Strong Apply", tone: "high" };
+  if (requiredMatchPercent >= 70 && score >= 70) {
+    return "Strong fit: required skill coverage is high and aligned.";
   }
-
-  if (hiringScore >= 60) {
-    return { label: "Apply Fast", tone: "med" };
-  }
-
-  return { label: "Lower Priority", tone: "low" };
-}
-
-function getFitLevel(score) {
-  if (score >= 75) return "High fit: You likely qualify on skills and core requirements.";
-  if (score >= 50) return "Moderate fit: Review requirements and tailor your resume before applying.";
-  return "Low fit: Core match is weak; this role is likely not worth applying to now.";
+  return "Moderate fit: tailor your resume to close remaining required skill gaps.";
 }
 
 function getHiringLevel(score) {
@@ -331,219 +336,46 @@ function getHiringLevel(score) {
   return "Low hiring activity: older or weaker posting signals.";
 }
 
-function getCompetitionLevel(score) {
-  if (score >= 70) return "Lower crowding: applicant pool likely more manageable.";
-  if (score >= 45) return "Moderate crowding: expect competition.";
-  return "High crowding: likely a saturated applicant pool.";
+function getEffortLabel(score) {
+  if (score >= 60) return "High";
+  if (score >= 30) return "Medium";
+  return "Low";
 }
 
-function scoreYearsAlignment(requiredYears, resumeYears, gaps, notes) {
-  if (!requiredYears) {
-    notes.push("Years requirement is unclear in the job description; marked as uncertain.");
-    return 60;
+function getRecommendation(fitScore, requiredMatchPercent, hiringScore, effortScore) {
+  if (fitScore < FIT_GATE_THRESHOLD || requiredMatchPercent < 50) {
+    return { label: "Not Recommended", tone: "low" };
   }
-  if (!resumeYears) {
-    gaps.push(`Uncertain Gap: Job asks for ${requiredYears}+ years but resume years are unclear.`);
-    return 45;
+  if (fitScore >= 70 && requiredMatchPercent >= 70 && hiringScore >= 65 && effortScore < 60) {
+    return { label: "Strong Apply", tone: "high" };
   }
-  if (resumeYears < requiredYears) {
-    gaps.push(`Critical Gap: Job asks for ${requiredYears}+ years; resume shows ${resumeYears} years.`);
-    return 5;
+  if (hiringScore >= 55) {
+    return { label: "Apply Fast", tone: "med" };
   }
-  notes.push(`Years alignment looks strong (${resumeYears} vs required ${requiredYears}).`);
-  return 100;
+  return { label: "Lower Priority", tone: "low" };
 }
 
-function scoreMandatoryCoverage(requirements, resume, gaps, notes) {
-  if (!requirements.length) {
-    notes.push("No explicit mandatory requirement phrases were detected.");
-    return 70;
-  }
-
-  const resumeCombined = `${resume.hardSkills.join(" ")} ${resume.keywordProfile.terms.join(" ")} ${resume.certifications.join(" ")}`;
-  const missing = requirements.filter((req) => !resumeCombined.includes(req));
-  const matched = requirements.length - missing.length;
-
-  if (missing.length) gaps.push(`Moderate Gap: Mandatory requirement coverage missing for ${missing.join(", ")}.`);
-  notes.push(`Mandatory requirement coverage: ${matched}/${requirements.length}.`);
-  return Math.round((matched / requirements.length) * 100);
+function isSectionHeader(line, keywords) {
+  return keywords.some((keyword) => line.includes(keyword)) && line.length < 80;
 }
 
-function scoreKeywordOverlap(jobKeywords, resumeKeywords, notes) {
-  const required = jobKeywords.topTerms;
-  if (!required.length) {
-    notes.push("No strong repeated domain keywords detected in the job description.");
-    return 60;
-  }
-  const resumeSet = new Set(resumeKeywords.terms);
-  const overlap = required.filter((term) => resumeSet.has(term));
-  const score = Math.round((overlap.length / required.length) * 100);
-  notes.push(`Keyword overlap (high-frequency terms): ${overlap.length}/${required.length}.`);
-  return score;
+function normalizeText(text) {
+  return text
+    .toLowerCase()
+    .replace(/[•·]/g, " ")
+    .replace(/[^a-z0-9+.#\s/-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-function scoreCertificationAlignment(requiredCertifications, resumeCertifications, gaps, notes) {
-  if (!requiredCertifications.length) {
-    notes.push("No required certifications/licenses detected in the job description.");
-    return 80;
-  }
-  const resumeSet = new Set(resumeCertifications);
-  const matched = requiredCertifications.filter((cert) => resumeSet.has(cert));
-  const missing = requiredCertifications.filter((cert) => !resumeSet.has(cert));
-  if (missing.length) gaps.push(`Critical Gap: Missing required certifications/licenses: ${missing.join(", ")}.`);
-  notes.push(`Certification match: ${matched.length}/${requiredCertifications.length}.`);
-  return Math.round((matched.length / requiredCertifications.length) * 100);
-}
-
-function scoreSeniorityAlignment(job, resume, notes) {
-  const jobSignals = [...new Set([...job.seniority, ...job.leadershipVerbs])];
-  if (!jobSignals.length) {
-    notes.push("No clear seniority/responsibility verbs in the job description.");
-    return 60;
-  }
-  const resumeSignals = new Set([...resume.seniority, ...resume.leadershipVerbs]);
-  const overlap = jobSignals.filter((term) => resumeSignals.has(term));
-  notes.push(`Seniority/responsibility alignment: ${overlap.length}/${jobSignals.length}.`);
-  return Math.round((overlap.length / jobSignals.length) * 100);
-}
-
-function extractMaxYearsRequirement(text) {
-  const matches = [...text.matchAll(/(\d+)\+?\s*(?:years|yrs)(?:\s+of)?\s+(?:experience|exp)/g)].map((m) => Number(m[1]));
-  return matches.length ? Math.max(...matches) : 0;
-}
-
-function extractMaxYearsMentioned(text) {
-  const dateRangeYears = calculateYearsFromDateRanges(text);
-  if (dateRangeYears > 0) return dateRangeYears;
-
-  const matches = [...text.matchAll(/(\d+)\+?\s*(?:years|yrs)/g)].map((m) => Number(m[1]));
-  return matches.length ? Math.max(...matches) : 0;
-}
-
-function calculateYearsFromDateRanges(text) {
-  const ranges = extractDateRanges(text);
-  if (!ranges.length) return 0;
-  const merged = mergeMonthRanges(ranges);
-  const totalMonths = merged.reduce((acc, range) => acc + (range.end - range.start + 1), 0);
-  return Math.floor(totalMonths / 12);
-}
-
-function extractDateRanges(text) {
-  const monthPattern = "(?:jan(?:uary)?|feb(?:ruary)?|fabruary|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)";
-  const rangeRegex = new RegExp(`\\b(${monthPattern})\\s+(\\d{4})\\s*(?:-|to|–|—)\\s*(present|current|now|${monthPattern}\\s+\\d{4})`, "g");
-  const currentDate = new Date();
-  const ranges = [];
-
-  for (const match of text.matchAll(rangeRegex)) {
-    const startMonth = MONTH_LOOKUP[match[1]];
-    const startYear = Number(match[2]);
-    const endToken = match[3];
-
-    let endMonth;
-    let endYear;
-
-    if (/^(present|current|now)$/.test(endToken)) {
-      endMonth = currentDate.getMonth();
-      endYear = currentDate.getFullYear();
-    } else {
-      const endParts = endToken.split(/\s+/);
-      endMonth = MONTH_LOOKUP[endParts[0]];
-      endYear = Number(endParts[1]);
-    }
-
-    if (Number.isInteger(startMonth) && Number.isInteger(endMonth) && Number.isInteger(startYear) && Number.isInteger(endYear)) {
-      const start = startYear * 12 + startMonth;
-      const end = endYear * 12 + endMonth;
-      if (end >= start) ranges.push({ start, end });
-    }
-  }
-
-  return ranges;
-}
-
-function mergeMonthRanges(ranges) {
-  const sorted = [...ranges].sort((a, b) => a.start - b.start);
-  const merged = [];
-
-  sorted.forEach((range) => {
-    const last = merged.at(-1);
-    if (!last || range.start > last.end + 1) {
-      merged.push({ ...range });
-      return;
-    }
-    last.end = Math.max(last.end, range.end);
-  });
-
-  return merged;
-}
-
-function extractMatches(text, dictionary) {
-  return dictionary.filter((term) => text.includes(term));
-}
-
-function extractSeniority(text) {
-  return SENIORITY_LEVELS.filter((level) => text.includes(level));
-}
-
-function extractMandatoryRequirements(text) {
-  const lines = text.split(/\n|\./).map((line) => normalize(line)).filter(Boolean);
-  const requirements = [];
-
-  lines.forEach((line) => {
-    MANDATORY_PHRASES.forEach((phrase) => {
-      if (!line.includes(phrase)) return;
-      const afterPhrase = line.split(phrase)[1] || "";
-      const tokens = afterPhrase.split(/[,;]| and | or /).map((item) => item.trim()).filter(Boolean);
-      if (tokens.length) requirements.push(cleanRequirement(tokens[0]));
-    });
-  });
-
-  return [...new Set(requirements.filter(Boolean))].slice(0, 8);
-}
-
-function cleanRequirement(text) {
-  return text.replace(/^(have|to|a|an|the|with|for)\s+/, "").replace(/[^a-z0-9+\-\s]/g, "").trim();
-}
-
-function extractKeywordProfile(text) {
-  const nounLikePhrases = text.match(/\b[a-z]{3,}(?:\s+[a-z]{3,}){0,2}\b/g) || [];
-  const frequencies = nounLikePhrases.reduce((acc, phrase) => {
-    const cleaned = phrase.trim();
-    if (cleaned.length < 4 || /^(with|from|that|this|will|your|have|must|required|minimum)$/.test(cleaned)) return acc;
-    acc[cleaned] = (acc[cleaned] || 0) + 1;
-    return acc;
-  }, {});
-
-  const sorted = Object.entries(frequencies)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 15)
-    .map(([term]) => term);
-
-  return { terms: sorted, topTerms: sorted.slice(0, 8) };
-}
-
-function extractCertifications(text) {
-  const normalized = normalize(text);
-  const certs = CERTIFICATION_TERMS.filter((term) => normalized.includes(term));
-  return [...new Set(certs)];
-}
-
-function extractHardRequirements(text) {
-  return [...new Set(extractMatches(text, HARD_SKILLS))];
-}
-
-function normalize(text) {
-  return text.toLowerCase().replace(/\s+/g, " ").trim();
-}
-
-function renderResults({ fitScore, hiringScore, competitionScore, fitLevel, hiringLevel, competitionLevel, gaps, signals, recommendation }) {
+function renderResults({ fitScore, hiringScore, effort, fitLevel, hiringLevel, gaps, signals, recommendation }) {
   document.getElementById("fit-score").textContent = `${fitScore}/100`;
   document.getElementById("hiring-score").textContent = `${hiringScore}/100`;
-  document.getElementById("competition-score").textContent = `${competitionScore}/100`;
+  document.getElementById("effort-level").textContent = effort.label;
+  document.getElementById("effort-note").textContent = `Application effort is ${effort.label.toLowerCase()} (${effort.score}/100 internal score).`;
   document.getElementById("fit-progress").value = fitScore;
   document.getElementById("fit-level").textContent = fitLevel;
   document.getElementById("hiring-level").textContent = hiringLevel;
-  document.getElementById("competition-level").textContent = competitionLevel;
 
   const recommendationEl = document.getElementById("recommendation");
   recommendationEl.textContent = `Final Recommendation: ${recommendation.label}`;
@@ -552,7 +384,7 @@ function renderResults({ fitScore, hiringScore, competitionScore, fitLevel, hiri
 
   const gapsList = document.getElementById("gaps");
   gapsList.innerHTML = "";
-  (gaps.length ? gaps : ["No major gaps detected from available textual evidence."]).forEach((gap) => {
+  gaps.forEach((gap) => {
     const li = document.createElement("li");
     li.textContent = gap;
     gapsList.appendChild(li);
