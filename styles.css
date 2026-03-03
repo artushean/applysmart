@@ -130,21 +130,26 @@ textarea {
   font-size: 0.92rem;
 }
 
-.select-stack {
+.select-grid {
   display: grid;
-  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 1rem;
+  row-gap: 0.3rem;
   margin-bottom: 1.2rem;
+  width: 100%;
 }
 
-@media (min-width: 700px) {
-  .select-stack {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    column-gap: 1rem;
+@media (max-width: 700px) {
+  .select-grid {
+    grid-template-columns: 1fr;
   }
 }
 
-select,
-#title-focus {
+.form-field {
+  min-width: 0;
+}
+
+select {
   width: 100%;
   min-height: 44px;
   border-radius: 10px;
