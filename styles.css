@@ -28,20 +28,6 @@ body {
 header { margin-bottom: 1.5rem; }
 header p { color: var(--muted); }
 
-.hard-refresh-btn {
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  padding: 0.5rem 0.75rem;
-  background: #f9fafb;
-  color: #374151;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.hard-refresh-btn:disabled {
-  opacity: 0.75;
-  cursor: wait;
-}
 
 .layout {
   display: grid;

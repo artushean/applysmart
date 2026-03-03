@@ -20,14 +20,7 @@ const uploadError = document.getElementById("upload-error");
 const loading = document.getElementById("loading");
 const analyzeBtn = document.getElementById("analyze-btn");
 const mainLayout = document.getElementById("main-layout");
-const hardRefreshBtn = document.getElementById("hard-refresh-btn");
 const skillEnginePromise = loadSkillEngine();
-
-if (hardRefreshBtn) {
-  hardRefreshBtn.addEventListener("click", () => {
-    runHardRefresh(hardRefreshBtn);
-  });
-}
 
 clearJobBtn.addEventListener("click", () => {
   jobDescription.value = "";
@@ -164,37 +157,6 @@ async function loadSkillEngine() {
     console.error("Failed to load ESCO skill dictionary.", error);
     return hydrateSkillEngine({ canonicalToVariations: {}, variationToCanonical: {} });
   }
-}
-
-
-async function runHardRefresh(button) {
-  const originalLabel = button.textContent;
-  button.disabled = true;
-  button.textContent = "Refreshing...";
-
-  try {
-    if ("serviceWorker" in navigator) {
-      const registrations = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(registrations.map((registration) => registration.unregister()));
-    }
-
-    if ("caches" in window) {
-      const cacheKeys = await caches.keys();
-      await Promise.all(cacheKeys.map((key) => caches.delete(key)));
-    }
-
-    localStorage.clear();
-    sessionStorage.clear();
-  } catch (error) {
-    console.warn("Hard refresh cleanup encountered an issue:", error);
-  }
-
-  window.location.replace(withCacheBusting(window.location.pathname));
-
-  setTimeout(() => {
-    button.disabled = false;
-    button.textContent = originalLabel;
-  }, 1500);
 }
 
 function withCacheBusting(url) {
