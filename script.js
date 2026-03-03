@@ -1,6 +1,7 @@
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
-const SUPPORTED_EXTENSIONS = ["pdf", "docx", "txt"];
+const SUPPORTED_EXTENSIONS = ["pdf", "docx"];
 const FIT_GATE_THRESHOLD = 50;
+const PDF_WORKER_SRC = "https://unpkg.com/pdfjs-dist@4.7.76/build/pdf.worker.min.mjs";
 
 const DOMAIN_KEYWORDS = [
   "fintech", "healthcare", "edtech", "ecommerce", "saas", "cybersecurity", "cloud", "ai", "machine learning", "data", "mobile", "payments", "compliance", "devops", "product"
@@ -26,6 +27,7 @@ const uploadStatus = document.getElementById("upload-status");
 const uploadError = document.getElementById("upload-error");
 const loading = document.getElementById("loading");
 const analyzeBtn = document.getElementById("analyze-btn");
+const mainLayout = document.getElementById("main-layout");
 
 clearJobBtn.addEventListener("click", () => {
   jobDescription.value = "";
@@ -34,7 +36,7 @@ clearJobBtn.addEventListener("click", () => {
 clearResumeBtn.addEventListener("click", () => {
   resumeText.value = "";
   resumeFile.value = "";
-  uploadStatus.textContent = "Accepted formats: PDF, DOCX, TXT (max 5MB).";
+  uploadStatus.textContent = "Accepted formats: PDF and Word (.docx) (max 5MB).";
   hideUploadError();
 });
 
@@ -85,7 +87,8 @@ form.addEventListener("submit", async (event) => {
   loading.hidden = false;
   analyzeBtn.disabled = true;
 
-  await new Promise((resolve) => setTimeout(resolve, 750));
+  autoSelectExperienceBand(jdRaw);
+  await new Promise((resolve) => setTimeout(resolve, 350));
 
   const jdSignals = extractJobSignals(jdRaw);
   const resumeSignals = extractResumeSignals(resumeRaw);
@@ -108,18 +111,18 @@ form.addEventListener("submit", async (event) => {
 
   loading.hidden = true;
   analyzeBtn.disabled = false;
+  mainLayout.classList.remove("results-hidden");
 });
 
 function validateFile(file) {
   if (file.size > MAX_FILE_SIZE_BYTES) return "File is too large. Maximum allowed size is 5MB.";
   const extension = file.name.split(".").pop()?.toLowerCase() || "";
-  if (!SUPPORTED_EXTENSIONS.includes(extension)) return "Unsupported file type. Please upload a PDF, DOCX, or TXT file.";
+  if (!SUPPORTED_EXTENSIONS.includes(extension)) return "Unsupported file type. Please upload a PDF or Word (.docx) file.";
   return "";
 }
 
 async function extractTextFromFile(file) {
   const extension = file.name.split(".").pop()?.toLowerCase();
-  if (extension === "txt") return file.text();
   if (extension === "docx") {
     if (typeof mammoth === "undefined") throw new Error("DOCX parser is unavailable.");
     const arrayBuffer = await file.arrayBuffer();
@@ -129,7 +132,12 @@ async function extractTextFromFile(file) {
   if (extension === "pdf") {
     const parser = await getPdfParser();
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const pdf = await parser.getDocument({ data: bytes }).promise;
+    let pdf;
+    try {
+      pdf = await parser.getDocument({ data: bytes }).promise;
+    } catch (_error) {
+      pdf = await parser.getDocument({ data: bytes, disableWorker: true }).promise;
+    }
     let text = "";
     for (let i = 1; i <= pdf.numPages; i += 1) {
       const page = await pdf.getPage(i);
@@ -142,10 +150,28 @@ async function extractTextFromFile(file) {
 }
 
 async function getPdfParser() {
-  if (window.pdfjsLib) return window.pdfjsLib;
-  const pdfjs = await import("https://unpkg.com/pdfjs-dist@4.7.76/build/pdf.min.mjs");
-  pdfjs.GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@4.7.76/build/pdf.worker.min.mjs";
+  const pdfjs = window.pdfjsLib || await import("https://unpkg.com/pdfjs-dist@4.7.76/build/pdf.min.mjs");
+  if (pdfjs?.GlobalWorkerOptions) {
+    pdfjs.GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
+  }
   return pdfjs;
+}
+
+function autoSelectExperienceBand(jobText) {
+  const experienceBand = document.getElementById("experience-band");
+  experienceBand.value = detectExperienceBand(jobText);
+}
+
+function detectExperienceBand(jobText) {
+  const normalized = normalize(jobText);
+  const requiredYears = extractMaxYearsRequirement(normalized);
+  if (/\b(junior|entry[-\s]?level|associate|intern)\b/.test(normalized) || (requiredYears > 0 && requiredYears <= 2)) {
+    return "12";
+  }
+  if (/\b(senior|lead|principal|staff|manager|director|head|vp)\b/.test(normalized) || requiredYears >= 5) {
+    return "30";
+  }
+  return "20";
 }
 
 function extractJobSignals(text) {
@@ -228,18 +254,28 @@ function calculateCompetitionScore() {
   const notes = [];
   const workMode = Number(document.getElementById("work-mode").value);
   const experienceBand = Number(document.getElementById("experience-band").value);
-  const titleSpecificity = Number(document.getElementById("title-specificity").value);
+  const titleFocus = normalize(document.getElementById("title-focus").value);
   const applicationPath = Number(document.getElementById("application-path").value);
+  const titleSpecificity = getTitleSpecificityScore(titleFocus);
 
   let score = workMode + experienceBand + titleSpecificity - applicationPath;
   if (workMode <= 12) notes.push("Remote role increased expected crowding.");
-  if (experienceBand <= 12) notes.push("Entry-level band increased expected applicant volume.");
-  if (titleSpecificity <= 10) notes.push("Generic role title increased expected competition.");
+  if (experienceBand <= 12) notes.push("Junior-level role increased expected applicant volume.");
+  if (experienceBand >= 30) notes.push("Senior-level role reduced expected applicant volume.");
+  if (titleSpecificity <= 10) notes.push("Broad role title/focus increased expected competition.");
   if (applicationPath >= 10) notes.push("Easy Apply increased crowding pressure.");
 
   score = Math.max(0, Math.min(100, score));
   notes.push("Higher Competition Score means less crowding and easier odds.");
   return { score, notes };
+}
+
+function getTitleSpecificityScore(titleFocus) {
+  if (!titleFocus) return 16;
+  const wordCount = titleFocus.split(/\s+/).filter(Boolean).length;
+  if (wordCount >= 4) return 28;
+  if (wordCount >= 2) return 20;
+  return 10;
 }
 
 function getRecommendation(fitScore, hiringScore, competitionScore, gaps) {
