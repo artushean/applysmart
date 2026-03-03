@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Listing Engagement Risk Analyzer</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header>
+        <h1>Listing Engagement Risk Analyzer</h1>
+        <p>
+          A decision-support tool for job seekers to estimate how much effort to
+          invest in an application.
+        </p>
+      </header>
+
+      <section class="card disclaimer">
+        <h2>Important Disclaimer</h2>
+        <p>
+          This tool estimates listing engagement risk based on posting patterns
+          and language structure. It does <strong>not</strong> determine employer
+          intent and does <strong>not</strong> label listings as fake or ghost
+          jobs.
+        </p>
+        <p>
+          To reduce legal and privacy risk, this MVP does not collect company
+          names, does not scrape job platforms, and relies only on user-provided
+          listing details.
+        </p>
+      </section>
+
+      <section class="card form-card">
+        <h2>Paste Listing Details</h2>
+        <form id="risk-form">
+          <label for="description">Job description text</label>
+          <textarea
+            id="description"
+            name="description"
+            rows="10"
+            placeholder="Paste the full job description here..."
+            required
+          ></textarea>
+
+          <div class="grid">
+            <label>
+              Posting age
+              <select id="posting-age" name="postingAge">
+                <option value="0">Less than 14 days</option>
+                <option value="8">14-30 days</option>
+                <option value="16">31-60 days</option>
+                <option value="24">60+ days</option>
+              </select>
+            </label>
+
+            <label>
+              Repost frequency
+              <select id="repost-frequency" name="repostFrequency">
+                <option value="0">Unknown / no evidence</option>
+                <option value="8">Reposted once</option>
+                <option value="16">Reposted multiple times</option>
+              </select>
+            </label>
+
+            <label>
+              Salary transparency
+              <select id="salary-presence" name="salaryPresence">
+                <option value="10">No salary range shown</option>
+                <option value="0">Salary range shown</option>
+              </select>
+            </label>
+
+            <label>
+              Multi-location duplication
+              <select id="multi-location" name="multiLocation">
+                <option value="0">Single location</option>
+                <option value="6">2-3 locations for same role</option>
+                <option value="10">4+ locations for same role</option>
+              </select>
+            </label>
+
+            <label>
+              Experience level match to title
+              <select id="experience-match" name="experienceMatch">
+                <option value="0">Appears aligned</option>
+                <option value="6">Some mismatch</option>
+                <option value="12">Strong mismatch</option>
+              </select>
+            </label>
+          </div>
+
+          <button type="submit">Analyze Listing Risk</button>
+        </form>
+      </section>
+
+      <section class="card results" id="results" hidden>
+        <h2>Result</h2>
+        <p class="score" id="score"></p>
+        <p id="band"></p>
+
+        <h3>Why this score?</h3>
+        <ul id="reasons"></ul>
+
+        <h3>How to use this</h3>
+        <p>
+          Use this score to prioritize effort (time spent tailoring resume,
+          writing cover letter, and follow-up). It is directional, not absolute.
+        </p>
+      </section>
+    </main>
+
+    <script src="script.js"></script>
+  </body>
+</html>
