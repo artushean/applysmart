@@ -88,6 +88,11 @@
               </div>
 
               <div class="form-field">
+                <label for="user-years">Your Relevant Experience (Years)</label>
+                <input id="user-years" name="userYears" type="number" min="0" step="0.5" value="0" />
+              </div>
+
+              <div class="form-field">
                 <label for="easy-apply">Easy Apply</label>
                 <select id="easy-apply" name="easyApply">
                   <option value="25">Yes</option>
@@ -107,7 +112,7 @@
           <h2>Results</h2>
 
           <article class="score-card fit-card">
-            <h3>Fit Score <span class="tooltip-wrap"><button type="button" class="tooltip" aria-label="Fit Score info">?</button><span class="tooltip-text">Primary decision factor. Low fit means the role is not recommended regardless of other scores.</span></span></h3>
+            <h3>Fit Score <span class="tooltip-wrap"><button type="button" class="tooltip" aria-label="Fit Score info">?</button><span class="tooltip-text">Primary decision factor. Core skills, experience, and context are blended to estimate interview likelihood.</span></span></h3>
             <p id="fit-score" class="score-primary">0/100</p>
             <progress id="fit-progress" max="100" value="0"></progress>
             <p id="fit-level" class="score-note"></p>
@@ -130,7 +135,7 @@
           <h3>Detected Gaps</h3>
           <ul id="gaps"></ul>
 
-          <h3>Resume Strength</h3>
+          <h3>Strength Highlights</h3>
           <ul id="resume-strength"></ul>
         </section>
       </div>

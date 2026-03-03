@@ -1,8 +1,53 @@
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
 const SUPPORTED_EXTENSIONS = ["pdf", "docx"];
-const FIT_GATE_THRESHOLD = 60;
 const PDF_WORKER_SRC = "https://unpkg.com/pdfjs-dist@4.7.76/build/pdf.worker.min.mjs";
 const ESCO_SKILL_DICTIONARY_URL = "data/esco-skill-dictionary.json";
+
+const SKILL_NORMALIZATION_MAP = {
+  "react.js": "react",
+  "reactjs": "react",
+  "node.js": "nodejs",
+  "node js": "nodejs",
+  "ms excel": "excel",
+  "microsoft excel": "excel",
+  "google analytics 4": "google analytics",
+  "ga4": "google analytics",
+  "c sharp": "c#",
+  "power bi": "powerbi",
+  "a b testing": "a/b testing"
+};
+
+const capabilityDomains = {
+  analytical: ["excel", "sql", "python", "tableau", "powerbi", "forecasting", "financial modeling", "reporting"],
+  technical: ["javascript", "react", "nodejs", "java", "c#", "aws", "docker", "devops"],
+  marketing: ["seo", "sem", "google ads", "email marketing", "crm", "a/b testing", "content strategy"],
+  sales: ["salesforce", "lead generation", "account management", "pipeline management", "b2b sales"],
+  finance: ["gaap", "budgeting", "audit", "tax compliance", "sap", "quickbooks"],
+  operations: ["logistics", "inventory management", "procurement", "lean", "six sigma", "erp"],
+  project_management: ["agile", "scrum", "pmp", "jira", "risk management"],
+  design: ["figma", "adobe", "ux research", "wireframing", "branding"],
+  healthcare: ["emr", "hipaa", "patient care", "clinical trials"],
+  hr: ["talent acquisition", "hris", "onboarding", "compensation planning"]
+};
+
+const DOMAIN_BY_SKILL = Object.entries(capabilityDomains).reduce((acc, [domain, skills]) => {
+  skills.forEach((skill) => {
+    acc[normalizeSkill(skill)] = domain;
+  });
+  return acc;
+}, {});
+
+const SOFT_SKILL_KEYWORDS = new Set([
+  "communication",
+  "teamwork",
+  "leadership",
+  "problem solving",
+  "time management",
+  "adaptability",
+  "collaboration",
+  "work ethic",
+  "critical thinking"
+]);
 
 const SECTION_REQUIRED_KEYWORDS = ["requirement", "required", "must", "minimum qualification", "qualifications", "experience with"];
 const SECTION_OPTIONAL_KEYWORDS = ["preferred", "nice to have", "bonus", "plus", "good to have"];
@@ -80,10 +125,11 @@ form.addEventListener("submit", async (event) => {
 
     const jdSkills = extractJobSkills(jdRaw, skillEngine);
     const resumeSkills = extractResumeSkills(resumeRaw, skillEngine);
+    const userYears = Number(document.getElementById("user-years").value);
     console.debug("[FitScore] Extracted required skills:", jdSkills.required, "count:", jdSkills.required.length);
     console.debug("[FitScore] Extracted optional skills:", jdSkills.optional, "count:", jdSkills.optional.length);
     console.debug("[FitScore] Detected resume skills:", resumeSkills, "count:", resumeSkills.length);
-    const comparison = compareSkillSets(jdSkills, resumeSkills, normalizeText(resumeRaw));
+    const comparison = compareSkillSets(jdRaw, resumeRaw, jdSkills, resumeSkills, userYears);
     const resumeStrength = calculateResumeStrength(comparison);
 
     const hiring = calculateHiringScore(jdRaw);
@@ -207,7 +253,7 @@ function extractJobSkills(jobText, skillEngine) {
 
     if (mode === "ignore") return;
 
-    const extracted = extractSkillsFromLine(normalizedLine, skillEngine);
+    const extracted = extractSkillsFromLine(normalizedLine, skillEngine).filter((skill) => !SOFT_SKILL_KEYWORDS.has(skill));
     if (!extracted.length) return;
 
     const isRequiredLine = /\b(required|must have|must|minimum|need to|at least)\b/.test(normalizedLine);
@@ -241,7 +287,7 @@ function extractResumeSkills(resume, skillEngine) {
 
     sectionBoost = RESUME_SECTION_KEYWORDS.some((keyword) => normalizedLine.includes(keyword)) || sectionBoost;
 
-    const direct = extractSkillsFromLine(normalizedLine, skillEngine);
+    const direct = extractSkillsFromLine(normalizedLine, skillEngine).filter((skill) => !SOFT_SKILL_KEYWORDS.has(skill));
     direct.forEach((skill) => found.add(skill));
 
     if (/experience with|worked on|proficient in/.test(normalizedLine) || sectionBoost) {
@@ -249,7 +295,9 @@ function extractResumeSkills(resume, skillEngine) {
     }
   });
 
-  extractSkillsFromLine(normalizeText(resume), skillEngine).forEach((skill) => found.add(skill));
+  extractSkillsFromLine(normalizeText(resume), skillEngine)
+    .filter((skill) => !SOFT_SKILL_KEYWORDS.has(skill))
+    .forEach((skill) => found.add(skill));
 
   return [...found];
 }
@@ -265,118 +313,130 @@ function extractSkillsFromLine(normalizedLine, skillEngine) {
     for (let size = 1; size <= maxWords && start + size <= tokens.length; size += 1) {
       const variation = tokens.slice(start, start + size).join(" ");
       const canonical = skillEngine.variationToCanonical[variation];
-      if (canonical) matched.add(canonical);
+      if (canonical) matched.add(normalizeSkill(canonical));
     }
   }
 
   return [...matched];
 }
 
-function compareSkillSets(jobSkills, resumeSkills, normalizedResumeText) {
-  const resumeSet = new Set(resumeSkills);
-  const requiredMatched = jobSkills.required.filter((skill) => resumeSet.has(skill));
-  const optionalMatched = jobSkills.optional.filter((skill) => resumeSet.has(skill));
-  const missingRequired = jobSkills.required.filter((skill) => !resumeSet.has(skill));
+function compareSkillSets(jobText, resumeText, jobSkills, resumeSkills, userYears) {
+  const resumeSet = new Set(resumeSkills.map((skill) => normalizeSkill(skill)));
+  const requiredSkills = jobSkills.required.map((skill) => normalizeSkill(skill));
 
-  const experience = evaluateExperienceMatch(normalizedResumeText);
+  const requiredSkillScores = requiredSkills.map((jobSkill) => {
+    if (resumeSet.has(jobSkill)) return { skill: jobSkill, score: 1, matchType: "exact" };
+    const domain = getSkillDomain(jobSkill);
+    if (!domain) return { skill: jobSkill, score: 0, matchType: "none" };
+    const hasDomainSkill = [...resumeSet].some((resumeSkill) => getSkillDomain(resumeSkill) === domain);
+    if (hasDomainSkill) return { skill: jobSkill, score: 0.7, matchType: "domain" };
+    return { skill: jobSkill, score: 0, matchType: "none" };
+  });
 
-  const requiredMatchRatio = jobSkills.required.length
-    ? requiredMatched.length / jobSkills.required.length
+  const baseCoreSkillScore = requiredSkills.length
+    ? requiredSkillScores.reduce((sum, item) => sum + item.score, 0) / requiredSkills.length
     : 1;
-  const optionalMatchRatio = jobSkills.optional.length
-    ? optionalMatched.length / jobSkills.optional.length
-    : 1;
 
-  // Weighting prioritizes required skills while still allowing optional/experience lift.
-  // This avoids hidden 50-point ceilings when optional skill extraction is broad.
-  const requiredWeight = 0.85;
-  const optionalWeight = jobSkills.optional.length ? 0.1 : 0;
-  const experienceWeight = 0.05;
-  const totalWeight = requiredWeight + optionalWeight + experienceWeight;
+  const requiredDomains = new Set(requiredSkills.map((skill) => getSkillDomain(skill)).filter(Boolean));
+  const resumeDomainCounts = [...resumeSet].reduce((acc, skill) => {
+    const domain = getSkillDomain(skill);
+    if (domain) acc[domain] = (acc[domain] || 0) + 1;
+    return acc;
+  }, {});
+  const eligibleDomainBonus = [...requiredDomains].reduce((bonus, domain) => (
+    resumeDomainCounts[domain] >= 3 ? bonus + 0.05 : bonus
+  ), 0);
+  const domainBonus = Math.min(0.1, eligibleDomainBonus);
+  const coreSkillScore = Math.min(baseCoreSkillScore + domainBonus, 1);
 
-  const weightedScore = (
-    requiredMatchRatio * requiredWeight
-    + optionalMatchRatio * optionalWeight
-    + (experience.matched ? 1 : 0) * experienceWeight
-  ) / totalWeight;
-  const fitScore = Math.round(weightedScore * 100);
+  const requiredYears = extractRequiredYears(jobText);
+  const experienceScore = evaluateExperienceScore(userYears, requiredYears);
+  const contextScore = evaluateContextRelevance(jobText, resumeText);
 
-  const requiredMatchPercent = Math.round(requiredMatchRatio * 100);
-  const optionalMatchPercent = Math.round(optionalMatchRatio * 100);
+  const coreSkillContribution = coreSkillScore * 70;
+  const experienceContribution = experienceScore * 20;
+  const contextContribution = contextScore * 10;
 
-  const scoredMissing = missingRequired
-    .map((skill) => ({ skill, confidence: estimateMissingConfidence(skill, normalizedResumeText) }))
-    .sort((a, b) => b.confidence - a.confidence);
+  let fitScore = coreSkillContribution + experienceContribution + contextContribution;
 
-  const likelyMissing = scoredMissing.filter((item) => item.confidence >= 70).map((item) => item.skill);
-  const maybeMissing = scoredMissing.filter((item) => item.confidence >= 40 && item.confidence < 70).map((item) => item.skill);
+  const exactOrDomainMatchPercent = requiredSkills.length
+    ? (requiredSkillScores.filter((item) => item.score > 0).length / requiredSkills.length) * 100
+    : 100;
+  if (exactOrDomainMatchPercent >= 70 && experienceScore >= 0.7 && contextScore >= 0.7) {
+    fitScore = Math.max(75, fitScore);
+  }
+  fitScore = Math.round(Math.min(100, fitScore));
 
-  const gaps = [];
-  if (likelyMissing.length) gaps.push(`Likely missing required skills: ${likelyMissing.join(", ")}.`);
-  if (maybeMissing.length) gaps.push(`Possibly missing skills (verify wording/synonyms): ${maybeMissing.join(", ")}.`);
-  if (!gaps.length) gaps.push("No required skill gaps detected.");
+  const missingRequired = requiredSkillScores.filter((item) => item.score === 0).map((item) => item.skill);
+  const strongDomains = [...requiredDomains].filter((domain) => resumeDomainCounts[domain] >= 3);
+  const requiredMatchPercent = Math.round((baseCoreSkillScore * 100));
 
-  console.debug("[FitScore] Required skills list:", jobSkills.required);
-  console.debug("[FitScore] Matched required skills:", requiredMatched);
-  console.debug("[FitScore] Missing required skills:", missingRequired);
-  console.debug("[FitScore] Required match percentage:", requiredMatchPercent);
-  console.debug("[FitScore] Experience match result:", experience);
-  console.debug("[FitScore] Resume skills detected:", resumeSkills);
-  console.debug("[FitScore] Final computed score:", fitScore);
+  const gaps = missingRequired.length
+    ? [`Missing required skills: ${missingRequired.join(", ")}.`]
+    : ["No clearly missing required skills detected."];
 
   return {
     fitScore,
     requiredMatchPercent,
-    optionalMatchPercent,
+    optionalMatchPercent: 0,
     gaps,
-    notes: [
-      `Required skill match: ${requiredMatched.length}/${jobSkills.required.length || 0} (${requiredMatchPercent}%).`,
-      `Optional skill match: ${optionalMatched.length}/${jobSkills.optional.length || 0} (${optionalMatchPercent}%).`,
-      `Experience match: ${experience.matched ? "yes" : "no"}${experience.years ? ` (${experience.years} years found)` : ""}.`,
-      "Fit uses weighted scoring: required (85%), optional (10% when present), experience (5%).",
-      "Skill matching uses normalized ESCO preferred labels and alternative labels."
-    ],
-    requiredMatchedCount: requiredMatched.length,
-    requiredTotalCount: jobSkills.required.length,
-    optionalMatchedCount: optionalMatched.length,
-    optionalTotalCount: jobSkills.optional.length,
-    experienceMatched: experience.matched
+    requiredMatchedCount: requiredSkillScores.filter((item) => item.score > 0).length,
+    requiredTotalCount: requiredSkills.length,
+    optionalMatchedCount: 0,
+    optionalTotalCount: 0,
+    coreSkillScore,
+    domainBonus,
+    strongDomains,
+    experienceAligned: experienceScore >= 0.85,
+    requiredYears,
+    userYears,
+    contextScore
   };
 }
 
-function evaluateExperienceMatch(normalizedResumeText) {
-  if (!normalizedResumeText) return { matched: false, years: null };
-  const matches = [...normalizedResumeText.matchAll(/(\d+)\+?\s+years?/g)];
-  if (!matches.length) return { matched: false, years: null };
-  const years = Math.max(...matches.map((match) => Number(match[1]) || 0));
-  return { matched: years >= 1, years };
+function extractRequiredYears(jobText) {
+  const normalized = normalizeText(jobText);
+  const matches = [...normalized.matchAll(/(\d+)\+?\s+years?/g)];
+  if (!matches.length) return null;
+  return Math.max(...matches.map((match) => Number(match[1]) || 0));
 }
 
-function estimateMissingConfidence(skill, normalizedResumeText) {
-  if (!normalizedResumeText || !skill) return 100;
-  const parts = skill.split(" ").filter((part) => part.length > 2);
-  if (!parts.length) return 100;
-  const matchedParts = parts.filter((part) => normalizedResumeText.includes(part)).length;
-  const ratio = matchedParts / parts.length;
-  return Math.round((1 - ratio) * 100);
+function evaluateExperienceScore(userYears, requiredYears) {
+  if (!requiredYears) return 1;
+  if (userYears >= requiredYears) return 1;
+  if (userYears >= requiredYears * 0.8) return 0.85;
+  if (userYears >= requiredYears * 0.6) return 0.7;
+  return 0.4;
+}
+
+function evaluateContextRelevance(jobText, resumeText) {
+  const jobTitleKeywords = extractTitleKeywords(jobText);
+  const resumeTitleKeywords = extractTitleKeywords(resumeText);
+  const industryOverlap = overlapRatio(extractIndustryKeywords(jobText), extractIndustryKeywords(resumeText));
+  const verbOverlap = overlapRatio(extractResponsibilityVerbs(jobText), extractResponsibilityVerbs(resumeText));
+  const titleOverlap = overlapRatio(jobTitleKeywords, resumeTitleKeywords);
+  const similarity = (titleOverlap * 0.45) + (industryOverlap * 0.3) + (verbOverlap * 0.25);
+
+  if (similarity >= 0.65) return 1;
+  if (similarity >= 0.45) return 0.7;
+  if (similarity >= 0.2) return 0.4;
+  return 0.2;
 }
 
 function calculateResumeStrength(comparison) {
   const notes = [
-    `Core skill coverage: ${comparison.requiredMatchedCount}/${comparison.requiredTotalCount || 0}.`,
-    `Secondary skill coverage: ${comparison.optionalMatchedCount}/${comparison.optionalTotalCount || 0}.`
+    `${comparison.requiredMatchedCount}/${comparison.requiredTotalCount || 0} core skills matched (including partial domain credit).`
   ];
 
-  if (comparison.requiredMatchPercent >= 80) {
-    notes.push("Your resume strongly aligns with the role's core requirements.");
-  } else if (comparison.requiredMatchPercent >= 60) {
-    notes.push("Your resume has moderate core alignment; tailor it to close top gaps.");
-  } else {
-    notes.push("Your resume does not yet show enough of the required skills for this role.");
+  if (comparison.strongDomains.length) {
+    notes.push(`Strong domain alignment in ${comparison.strongDomains.join(", ")}.`);
   }
 
-  if (comparison.optionalMatchPercent >= 50) {
-    notes.push("Optional skill alignment is a plus and can improve interview chances.");
+  if (comparison.requiredYears) {
+    const alignmentLabel = comparison.experienceAligned ? "Experience aligned" : "Experience partially aligned";
+    notes.push(`${alignmentLabel}: ${comparison.userYears} years provided vs ${comparison.requiredYears} years requested.`);
+  } else {
+    notes.push("No specific years requirement detected, so experience was treated as fully aligned.");
   }
 
   return notes;
@@ -451,13 +511,13 @@ function calculateOpportunityStrength(jobText) {
 }
 
 function getFitLevel(score, requiredMatchPercent) {
-  if (requiredMatchPercent < 50 || score < 60) {
-    return "Low fit: required skill coverage is below threshold; not recommended.";
+  if (score >= 80 || requiredMatchPercent >= 75) {
+    return "Strong fit: high core-skill alignment with interview-ready potential.";
   }
-  if (requiredMatchPercent >= 70 && score >= 70) {
-    return "Strong fit: required skill coverage is high and aligned.";
+  if (score >= 60) {
+    return "Moderate fit: good alignment with room to tailor for missing requirements.";
   }
-  return "Moderate fit: tailor your resume to close remaining required skill gaps.";
+  return "Developing fit: improve core skill coverage to strengthen interview odds.";
 }
 
 function getHiringLevel(score) {
@@ -473,16 +533,13 @@ function getOpportunityLabel(score) {
 }
 
 function getRecommendation(fitScore, requiredMatchPercent, hiringScore, effortScore) {
-  if (fitScore < FIT_GATE_THRESHOLD || requiredMatchPercent < 50) {
-    return { label: "Not Recommended", tone: "low" };
-  }
-  if (fitScore >= 70 && requiredMatchPercent >= 70 && hiringScore >= 65 && effortScore >= 60) {
+  if (fitScore >= 80 && requiredMatchPercent >= 70) {
     return { label: "Strong Apply", tone: "high" };
   }
-  if (hiringScore >= 55 && effortScore >= 40) {
-    return { label: "Apply Fast", tone: "med" };
+  if (fitScore >= 65 && (hiringScore >= 55 || effortScore >= 50)) {
+    return { label: "Apply", tone: "med" };
   }
-  return { label: "Lower Priority", tone: "low" };
+  return { label: "Selective Apply", tone: "low" };
 }
 
 function isSectionHeader(line, keywords) {
@@ -496,6 +553,42 @@ function normalizeText(text) {
     .replace(/[^a-z0-9+.#\s/-]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function normalizeSkill(skill) {
+  const cleaned = normalizeText(skill || "")
+    .replace(/[.,;:()]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return SKILL_NORMALIZATION_MAP[cleaned] || cleaned;
+}
+
+function getSkillDomain(skill) {
+  return DOMAIN_BY_SKILL[normalizeSkill(skill)] || null;
+}
+
+function overlapRatio(leftValues, rightValues) {
+  if (!leftValues.size || !rightValues.size) return 0;
+  const overlap = [...leftValues].filter((value) => rightValues.has(value)).length;
+  return overlap / Math.max(leftValues.size, rightValues.size);
+}
+
+function extractTitleKeywords(text) {
+  const normalized = normalizeText(text);
+  const titleLine = normalized.split(/\n|\./)[0] || "";
+  return new Set(titleLine.split(" ").filter((token) => token.length > 2));
+}
+
+function extractIndustryKeywords(text) {
+  const INDUSTRY_TERMS = ["saas", "healthcare", "finance", "retail", "b2b", "manufacturing", "education", "logistics", "marketing", "technology"];
+  const normalized = normalizeText(text);
+  return new Set(INDUSTRY_TERMS.filter((keyword) => normalized.includes(keyword)));
+}
+
+function extractResponsibilityVerbs(text) {
+  const VERBS = ["manage", "lead", "develop", "design", "analyze", "build", "coordinate", "optimize", "implement", "execute"];
+  const normalized = normalizeText(text);
+  return new Set(VERBS.filter((verb) => normalized.includes(verb)));
 }
 
 function renderResults({ fitScore, hiringScore, opportunity, fitLevel, hiringLevel, gaps, resumeStrength, recommendation }) {
