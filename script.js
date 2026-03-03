@@ -149,7 +149,7 @@ async function getPdfParser() {
 
 async function loadSkillEngine() {
   try {
-    const response = await fetch(ESCO_SKILL_DICTIONARY_URL);
+    const response = await fetch(withCacheBusting(ESCO_SKILL_DICTIONARY_URL), { cache: "no-store" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const dictionary = await response.json();
     return hydrateSkillEngine(dictionary);
@@ -157,6 +157,12 @@ async function loadSkillEngine() {
     console.error("Failed to load ESCO skill dictionary.", error);
     return hydrateSkillEngine({ canonicalToVariations: {}, variationToCanonical: {} });
   }
+}
+
+function withCacheBusting(url) {
+  const parsed = new URL(url, window.location.href);
+  parsed.searchParams.set("v", Date.now().toString());
+  return parsed.toString();
 }
 
 function hydrateSkillEngine(dictionary) {

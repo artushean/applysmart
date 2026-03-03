@@ -28,6 +28,7 @@ body {
 header { margin-bottom: 1.5rem; }
 header p { color: var(--muted); }
 
+
 .layout {
   display: grid;
   grid-template-columns: 1fr;
