@@ -50,3 +50,27 @@ Then visit `http://localhost:4173`.
 3. Set source to **Deploy from a branch**.
 4. Pick branch `main` (or your default branch) and folder `/ (root)`.
 5. Save and wait for deployment URL.
+
+
+## ESCO-based skill dictionary
+
+The skill matcher now uses an ESCO-based dictionary rather than a hard-coded synonym map.
+
+- Runtime dictionary file: `data/esco-skill-dictionary.json`
+- Builder script: `scripts/build-esco-skill-dictionary.mjs`
+
+To regenerate from an ESCO skills JSON download:
+
+```bash
+node scripts/build-esco-skill-dictionary.mjs --source-file /path/to/esco-skills.json
+```
+
+The builder extracts only:
+
+- `preferredLabel.en` as canonical skill names
+- `alternativeLabel.en` as skill variations/synonyms
+
+It then normalizes all terms (lowercase, punctuation removal, space collapsing) and writes both:
+
+- `canonicalToVariations`
+- `variationToCanonical` (optimized lookup map)

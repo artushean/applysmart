@@ -2,39 +2,12 @@ const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
 const SUPPORTED_EXTENSIONS = ["pdf", "docx"];
 const FIT_GATE_THRESHOLD = 60;
 const PDF_WORKER_SRC = "https://unpkg.com/pdfjs-dist@4.7.76/build/pdf.worker.min.mjs";
+const ESCO_SKILL_DICTIONARY_URL = "data/esco-skill-dictionary.json";
 
 const SECTION_REQUIRED_KEYWORDS = ["requirement", "required", "must", "minimum qualification", "qualifications", "experience with"];
 const SECTION_OPTIONAL_KEYWORDS = ["preferred", "nice to have", "bonus", "plus", "good to have"];
 const SECTION_IGNORE_KEYWORDS = ["about us", "about the company", "benefits", "equal opportunity", "eeo", "who we are", "our culture"];
 const RESUME_SECTION_KEYWORDS = ["skills", "tools", "technology", "technologies", "certifications", "certificates"];
-
-const SKILL_VARIANTS = {
-  js: ["javascript", "java script", "js"],
-  ts: ["typescript", "type script", "ts"],
-  nodejs: ["node.js", "node js", "nodejs", "node"],
-  react: ["react", "react.js", "reactjs"],
-  python: ["python"],
-  java: ["java"],
-  sql: ["sql", "mysql", "mssql"],
-  postgres: ["postgres", "postgresql"],
-  mongodb: ["mongodb", "mongo db"],
-  aws: ["aws", "amazon web services"],
-  azure: ["azure", "microsoft azure"],
-  gcp: ["gcp", "google cloud", "google cloud platform"],
-  docker: ["docker"],
-  kubernetes: ["kubernetes", "k8s"],
-  terraform: ["terraform"],
-  git: ["git", "github", "gitlab", "bitbucket"],
-  excel: ["excel", "ms excel", "microsoft excel"],
-  powerbi: ["power bi", "powerbi"],
-  tableau: ["tableau"],
-  salesforce: ["salesforce"],
-  jira: ["jira"],
-  figma: ["figma"],
-  cissp: ["cissp"],
-  ccna: ["ccna"],
-  pmp: ["pmp"]
-};
 
 const form = document.getElementById("analysis-form");
 const jobDescription = document.getElementById("job-description");
@@ -47,6 +20,7 @@ const uploadError = document.getElementById("upload-error");
 const loading = document.getElementById("loading");
 const analyzeBtn = document.getElementById("analyze-btn");
 const mainLayout = document.getElementById("main-layout");
+const skillEnginePromise = loadSkillEngine();
 
 clearJobBtn.addEventListener("click", () => {
   jobDescription.value = "";
@@ -102,9 +76,10 @@ form.addEventListener("submit", async (event) => {
 
   try {
     await new Promise((resolve) => setTimeout(resolve, 200));
+    const skillEngine = await skillEnginePromise;
 
-    const jdSkills = extractJobSkills(jdRaw);
-    const resumeSkills = extractResumeSkills(resumeRaw);
+    const jdSkills = extractJobSkills(jdRaw, skillEngine);
+    const resumeSkills = extractResumeSkills(resumeRaw, skillEngine);
     const comparison = compareSkillSets(jdSkills, resumeSkills);
 
     const hiring = calculateHiringScore(jdRaw);
@@ -171,7 +146,33 @@ async function getPdfParser() {
   return pdfjs;
 }
 
-function extractJobSkills(jobText) {
+async function loadSkillEngine() {
+  try {
+    const response = await fetch(ESCO_SKILL_DICTIONARY_URL);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const dictionary = await response.json();
+    return hydrateSkillEngine(dictionary);
+  } catch (error) {
+    console.error("Failed to load ESCO skill dictionary.", error);
+    return hydrateSkillEngine({ canonicalToVariations: {}, variationToCanonical: {} });
+  }
+}
+
+function hydrateSkillEngine(dictionary) {
+  const variationToCanonical = dictionary.variationToCanonical || {};
+  const maxVariationWords = Math.max(
+    1,
+    ...Object.keys(variationToCanonical).map((variation) => variation.split(" ").length)
+  );
+
+  return {
+    canonicalToVariations: dictionary.canonicalToVariations || {},
+    variationToCanonical,
+    maxVariationWords
+  };
+}
+
+function extractJobSkills(jobText, skillEngine) {
   const lines = jobText.split(/\n+/).map((line) => line.trim()).filter(Boolean);
   const required = new Set();
   const optional = new Set();
@@ -196,7 +197,7 @@ function extractJobSkills(jobText) {
 
     if (mode === "ignore") return;
 
-    const extracted = extractSkillsFromLine(normalizedLine);
+    const extracted = extractSkillsFromLine(normalizedLine, skillEngine);
     if (!extracted.length) return;
 
     const target = mode === "optional" ? optional : required;
@@ -209,7 +210,7 @@ function extractJobSkills(jobText) {
   };
 }
 
-function extractResumeSkills(resume) {
+function extractResumeSkills(resume, skillEngine) {
   const lines = resume.split(/\n+/).map((line) => line.trim()).filter(Boolean);
   const found = new Set();
   let sectionBoost = false;
@@ -220,7 +221,7 @@ function extractResumeSkills(resume) {
 
     sectionBoost = RESUME_SECTION_KEYWORDS.some((keyword) => normalizedLine.includes(keyword)) || sectionBoost;
 
-    const direct = extractSkillsFromLine(normalizedLine);
+    const direct = extractSkillsFromLine(normalizedLine, skillEngine);
     direct.forEach((skill) => found.add(skill));
 
     if (/experience with|worked on|proficient in/.test(normalizedLine) || sectionBoost) {
@@ -231,13 +232,22 @@ function extractResumeSkills(resume) {
   return [...found];
 }
 
-function extractSkillsFromLine(normalizedLine) {
-  const skills = [];
-  Object.entries(SKILL_VARIANTS).forEach(([canonical, variants]) => {
-    const hasMatch = variants.some((variant) => normalizedLine.includes(normalizeText(variant)));
-    if (hasMatch) skills.push(canonical);
-  });
-  return [...new Set(skills)];
+function extractSkillsFromLine(normalizedLine, skillEngine) {
+  if (!normalizedLine || !skillEngine?.variationToCanonical) return [];
+
+  const tokens = normalizedLine.split(" ").filter(Boolean);
+  const matched = new Set();
+  const maxWords = skillEngine.maxVariationWords;
+
+  for (let start = 0; start < tokens.length; start += 1) {
+    for (let size = 1; size <= maxWords && start + size <= tokens.length; size += 1) {
+      const variation = tokens.slice(start, start + size).join(" ");
+      const canonical = skillEngine.variationToCanonical[variation];
+      if (canonical) matched.add(canonical);
+    }
+  }
+
+  return [...matched];
 }
 
 function compareSkillSets(jobSkills, resumeSkills) {
@@ -272,7 +282,7 @@ function compareSkillSets(jobSkills, resumeSkills) {
       `Required skill match: ${requiredMatched.length}/${jobSkills.required.length || 0} (${requiredMatchPercent}%).`,
       `Optional skill match: ${optionalMatched.length}/${jobSkills.optional.length || 0} (${optionalMatchPercent}%).`,
       "Fit uses weighted scoring: required skills have 2x weight vs optional skills.",
-      "Normalized skill aliases (e.g., Node.js/node js → nodejs, React.js → react, MS Excel → excel)."
+      "Skill matching uses normalized ESCO preferred labels and alternative labels."
     ]
   };
 }
@@ -300,7 +310,6 @@ function calculateHiringScore(jobText) {
 function calculateOpportunityStrength(jobText) {
   const notes = [];
   const easyApply = Number(document.getElementById("easy-apply").value);
-  const accountRequired = Number(document.getElementById("account-required").value);
   const salaryTransparency = Number(document.getElementById("salary-transparency").value);
   const postingAge = Number(document.getElementById("posting-age").value);
 
@@ -312,11 +321,6 @@ function calculateOpportunityStrength(jobText) {
   if (easyApply) {
     score -= easyApply;
     notes.push("Easy Apply lowers opportunity strength because it typically increases applicant volume.");
-  }
-
-  if (accountRequired) {
-    score -= 8;
-    notes.push("Account creation introduces friction and can reduce completion rates.");
   }
 
   if (salaryTransparency >= 10) {
