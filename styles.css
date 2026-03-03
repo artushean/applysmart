@@ -20,7 +20,7 @@ body {
 }
 
 .container {
-  max-width: 1200px;
+  max-width: 1440px;
   margin: 0 auto;
   padding: 2rem 1rem 3rem;
 }
@@ -34,8 +34,12 @@ header p { color: var(--muted); }
   gap: 1.5rem;
 }
 
+.layout.results-hidden {
+  grid-template-columns: 1fr;
+}
+
 @media (min-width: 960px) {
-  .layout {
+  .layout:not(.results-hidden) {
     grid-template-columns: 1.03fr 0.97fr;
     gap: 2rem;
     align-items: start;
@@ -57,6 +61,7 @@ label {
 
 textarea,
 select,
+input,
 button,
 .upload-btn {
   font: inherit;
@@ -131,7 +136,15 @@ textarea {
   margin-bottom: 1.2rem;
 }
 
-select {
+@media (min-width: 700px) {
+  .select-stack {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 1rem;
+  }
+}
+
+select,
+#title-focus {
   width: 100%;
   min-height: 44px;
   border-radius: 10px;
