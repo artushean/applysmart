@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-import numpy as np
 import spacy
 from rapidfuzz import fuzz
 
@@ -45,6 +44,7 @@ class Requirement:
     verb: str | None
     noun: str | None
     terms: list[str]
+    core_skills: list[str]
 
 
 class FitScorer:
@@ -59,7 +59,7 @@ class FitScorer:
         return {"tokens": tokens, "verbs": verbs, "nouns": nouns}
 
     def split_requirements(self, job_description: str) -> list[Requirement]:
-        lines = [l.strip(" -•\t") for l in re.split(r"\n+|\u2022", job_description) if l.strip()]
+        lines = self._split_requirement_lines(job_description)
         requirements: list[Requirement] = []
 
         for line in lines:
@@ -69,7 +69,18 @@ class FitScorer:
             verb = next((v for v in parsed["verbs"] if v in CORE_ACTION_VERBS), None)
             noun = self._pick_main_noun(parsed["nouns"])
             terms = self._extract_terms(parsed)
-            requirements.append(Requirement(text=line, weight=weight, kind=kind, verb=verb, noun=noun, terms=terms))
+            core_skills = self._extract_core_skills(normalized)
+            requirements.append(
+                Requirement(
+                    text=line,
+                    weight=weight,
+                    kind=kind,
+                    verb=verb,
+                    noun=noun,
+                    terms=terms,
+                    core_skills=core_skills,
+                )
+            )
         return requirements
 
     def score(self, job_description: str, resume_text: str) -> dict:
@@ -84,6 +95,10 @@ class FitScorer:
         core_weighted_score = 0.0
         core_total_weight = 0
 
+        jd_core_skills = sorted({skill for req in requirements for skill in req.core_skills})
+        matched_core_skills = sorted([skill for skill in jd_core_skills if self._skill_in_resume(skill, resume_terms)])
+        missing_core_skills = [skill for skill in jd_core_skills if skill not in matched_core_skills]
+
         core_gaps: list[str] = []
         important_gaps: list[str] = []
         trainable_gaps: list[str] = []
@@ -97,7 +112,7 @@ class FitScorer:
                 core_total_weight += req.weight
                 core_weighted_score += req.weight * multiplier
 
-            if np.isclose(multiplier, 0.0):
+            if multiplier < 0.4:
                 if req.weight == 3:
                     core_gaps.append(req.text)
                 elif req.weight == 2:
@@ -106,8 +121,13 @@ class FitScorer:
                     trainable_gaps.append(req.text)
 
         fit_score = int(round((weighted_score / total_weight) * 100)) if total_weight else 0
-        core_score = int(round((core_weighted_score / core_total_weight) * 100)) if core_total_weight else 0
+        weighted_core_score = int(round((core_weighted_score / core_total_weight) * 100)) if core_total_weight else 0
+        skill_core_score = int(round((len(matched_core_skills) / len(jd_core_skills)) * 100)) if jd_core_skills else 0
+        core_score = int(round((weighted_core_score * 0.4) + (skill_core_score * 0.6))) if (core_total_weight or jd_core_skills) else 0
         recommendation = "Recommended" if core_score >= 55 else "Not Recommended"
+
+        if missing_core_skills:
+            core_gaps.extend([f"Missing core skill: {skill}" for skill in missing_core_skills])
 
         return {
             "fit_score": fit_score,
@@ -118,7 +138,34 @@ class FitScorer:
                 "important": important_gaps,
                 "trainable": trainable_gaps,
             },
+            "core_skills": {
+                "total": len(jd_core_skills),
+                "matched": matched_core_skills,
+                "missing": missing_core_skills,
+                "match_percentage": skill_core_score,
+            },
         }
+
+    def _split_requirement_lines(self, job_description: str) -> list[str]:
+        base_lines = [l.strip(" -•\t") for l in re.split(r"\n+|\u2022", job_description) if l.strip()]
+        expanded_lines: list[str] = []
+        for line in base_lines:
+            if re.search(r"[.;]", line):
+                expanded_lines.extend([part.strip() for part in re.split(r"[.;]", line) if part.strip()])
+            else:
+                expanded_lines.append(line)
+        return expanded_lines
+
+    def _extract_core_skills(self, normalized_line: str) -> list[str]:
+        known_skills = sorted(set(CLUSTER_INDEX) | KNOWN_TOOL_PATTERNS, key=len, reverse=True)
+        return [skill for skill in known_skills if re.search(rf"\b{re.escape(skill)}\b", normalized_line)]
+
+    def _skill_in_resume(self, skill: str, resume_terms: set[str]) -> bool:
+        if skill in resume_terms:
+            return True
+        if self._cluster_match([skill], resume_terms):
+            return True
+        return self._fuzzy_match([skill], resume_terms)
 
     def _classify_requirement(self, raw_line: str, normalized_line: str) -> tuple[str, int]:
         if any(verb in normalized_line for verb in CORE_ACTION_VERBS):
@@ -165,14 +212,16 @@ class FitScorer:
             if has_noun:
                 return 0.5
 
-        if any(term in resume_terms for term in req.terms):
-            return 1.0
+        if req.terms:
+            overlap = sum(1 for term in req.terms if term in resume_terms)
+            if overlap:
+                return min(1.0, max(0.25, overlap / len(req.terms)))
 
         if self._cluster_match(req.terms, resume_terms):
-            return 0.5
+            return 0.4
 
         if self._fuzzy_match(req.terms, resume_terms):
-            return 0.75
+            return 0.6
 
         return 0.0
 
