@@ -21,18 +21,13 @@ body {
 }
 
 .container {
-  max-width: 900px;
+  max-width: 920px;
   margin: 0 auto;
   padding: 2rem 1rem 3rem;
 }
 
-header h1 {
-  margin-bottom: 0.25rem;
-}
-
 header p {
   color: var(--muted);
-  margin-top: 0;
 }
 
 .card {
@@ -43,20 +38,16 @@ header p {
   margin-top: 1rem;
 }
 
-.disclaimer {
-  border-left: 4px solid var(--accent);
-}
-
 label {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
+  display: block;
   font-weight: 600;
+  margin-bottom: 0.5rem;
 }
 
 textarea,
 select,
-button {
+button,
+.upload-btn {
   border-radius: 8px;
   border: 1px solid #334155;
   background: #0f172a;
@@ -67,7 +58,58 @@ button {
 
 textarea {
   width: 100%;
-  margin-bottom: 0.9rem;
+  margin-bottom: 0.7rem;
+  min-height: 160px;
+}
+
+button,
+.upload-btn {
+  cursor: pointer;
+  background: #1d4ed8;
+  border: none;
+  font-weight: 700;
+}
+
+button:hover,
+.upload-btn:hover {
+  filter: brightness(1.08);
+}
+
+.secondary {
+  background: #334155;
+}
+
+.input-tools {
+  margin-bottom: 0.6rem;
+}
+
+.button-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.7rem;
+}
+
+#resume-file {
+  display: none;
+}
+
+.hint {
+  color: var(--muted);
+  margin: 0.2rem 0;
+}
+
+.error {
+  color: var(--high);
+  margin: 0.3rem 0;
+}
+
+.privacy-disclaimer {
+  border-left: 3px solid var(--accent);
+  background: #0c1630;
+  padding: 0.7rem;
+  border-radius: 8px;
+  color: #dbeafe;
 }
 
 .grid {
@@ -76,34 +118,16 @@ textarea {
   gap: 0.8rem;
 }
 
-button {
-  margin-top: 1rem;
-  cursor: pointer;
-  background: #1d4ed8;
-  border: none;
-  font-weight: 700;
+.score-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.5rem;
 }
 
-button:hover {
-  filter: brightness(1.1);
-}
-
-.score {
-  font-size: 1.9rem;
-  margin: 0 0 0.3rem;
+.recommendation {
+  font-size: 1.1rem;
   font-weight: 800;
-}
-
-.risk-low {
   color: var(--low);
-}
-
-.risk-medium {
-  color: var(--med);
-}
-
-.risk-high {
-  color: var(--high);
 }
 
 ul {
