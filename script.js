@@ -80,6 +80,9 @@ form.addEventListener("submit", async (event) => {
 
     const jdSkills = extractJobSkills(jdRaw, skillEngine);
     const resumeSkills = extractResumeSkills(resumeRaw, skillEngine);
+    console.debug("[FitScore] Extracted required skills:", jdSkills.required, "count:", jdSkills.required.length);
+    console.debug("[FitScore] Extracted optional skills:", jdSkills.optional, "count:", jdSkills.optional.length);
+    console.debug("[FitScore] Detected resume skills:", resumeSkills, "count:", resumeSkills.length);
     const comparison = compareSkillSets(jdSkills, resumeSkills, normalizeText(resumeRaw));
     const resumeStrength = calculateResumeStrength(comparison);
 
@@ -213,9 +216,13 @@ function extractJobSkills(jobText, skillEngine) {
     extracted.forEach((skill) => target.add(skill));
   });
 
-  extractSkillsFromLine(normalizeText(jobText), skillEngine).forEach((skill) => {
-    if (!required.has(skill) && !optional.has(skill)) optional.add(skill);
-  });
+  // Fallback only when structured extraction finds nothing. Adding every skill to optional
+  // can dilute the score and make strong resumes look capped around mid-range.
+  if (!required.size && !optional.size) {
+    extractSkillsFromLine(normalizeText(jobText), skillEngine).forEach((skill) => {
+      optional.add(skill);
+    });
+  }
 
   return {
     required: [...required],
@@ -271,18 +278,31 @@ function compareSkillSets(jobSkills, resumeSkills, normalizedResumeText) {
   const optionalMatched = jobSkills.optional.filter((skill) => resumeSet.has(skill));
   const missingRequired = jobSkills.required.filter((skill) => !resumeSet.has(skill));
 
-  const requiredWeight = jobSkills.required.length * 2;
-  const optionalWeight = jobSkills.optional.length;
-  const possible = requiredWeight + optionalWeight;
-  const points = requiredMatched.length * 2 + optionalMatched.length;
-  const fitScore = possible > 0 ? Math.round((points / possible) * 100) : 65;
+  const experience = evaluateExperienceMatch(normalizedResumeText);
 
-  const requiredMatchPercent = jobSkills.required.length
-    ? Math.round((requiredMatched.length / jobSkills.required.length) * 100)
-    : 100;
-  const optionalMatchPercent = jobSkills.optional.length
-    ? Math.round((optionalMatched.length / jobSkills.optional.length) * 100)
-    : 100;
+  const requiredMatchRatio = jobSkills.required.length
+    ? requiredMatched.length / jobSkills.required.length
+    : 1;
+  const optionalMatchRatio = jobSkills.optional.length
+    ? optionalMatched.length / jobSkills.optional.length
+    : 1;
+
+  // Weighting prioritizes required skills while still allowing optional/experience lift.
+  // This avoids hidden 50-point ceilings when optional skill extraction is broad.
+  const requiredWeight = 0.85;
+  const optionalWeight = jobSkills.optional.length ? 0.1 : 0;
+  const experienceWeight = 0.05;
+  const totalWeight = requiredWeight + optionalWeight + experienceWeight;
+
+  const weightedScore = (
+    requiredMatchRatio * requiredWeight
+    + optionalMatchRatio * optionalWeight
+    + (experience.matched ? 1 : 0) * experienceWeight
+  ) / totalWeight;
+  const fitScore = Math.round(weightedScore * 100);
+
+  const requiredMatchPercent = Math.round(requiredMatchRatio * 100);
+  const optionalMatchPercent = Math.round(optionalMatchRatio * 100);
 
   const scoredMissing = missingRequired
     .map((skill) => ({ skill, confidence: estimateMissingConfidence(skill, normalizedResumeText) }))
@@ -296,6 +316,14 @@ function compareSkillSets(jobSkills, resumeSkills, normalizedResumeText) {
   if (maybeMissing.length) gaps.push(`Possibly missing skills (verify wording/synonyms): ${maybeMissing.join(", ")}.`);
   if (!gaps.length) gaps.push("No required skill gaps detected.");
 
+  console.debug("[FitScore] Required skills list:", jobSkills.required);
+  console.debug("[FitScore] Matched required skills:", requiredMatched);
+  console.debug("[FitScore] Missing required skills:", missingRequired);
+  console.debug("[FitScore] Required match percentage:", requiredMatchPercent);
+  console.debug("[FitScore] Experience match result:", experience);
+  console.debug("[FitScore] Resume skills detected:", resumeSkills);
+  console.debug("[FitScore] Final computed score:", fitScore);
+
   return {
     fitScore,
     requiredMatchPercent,
@@ -304,14 +332,24 @@ function compareSkillSets(jobSkills, resumeSkills, normalizedResumeText) {
     notes: [
       `Required skill match: ${requiredMatched.length}/${jobSkills.required.length || 0} (${requiredMatchPercent}%).`,
       `Optional skill match: ${optionalMatched.length}/${jobSkills.optional.length || 0} (${optionalMatchPercent}%).`,
-      "Fit uses weighted scoring: required skills have 2x weight vs optional skills.",
+      `Experience match: ${experience.matched ? "yes" : "no"}${experience.years ? ` (${experience.years} years found)` : ""}.`,
+      "Fit uses weighted scoring: required (85%), optional (10% when present), experience (5%).",
       "Skill matching uses normalized ESCO preferred labels and alternative labels."
     ],
     requiredMatchedCount: requiredMatched.length,
     requiredTotalCount: jobSkills.required.length,
     optionalMatchedCount: optionalMatched.length,
-    optionalTotalCount: jobSkills.optional.length
+    optionalTotalCount: jobSkills.optional.length,
+    experienceMatched: experience.matched
   };
+}
+
+function evaluateExperienceMatch(normalizedResumeText) {
+  if (!normalizedResumeText) return { matched: false, years: null };
+  const matches = [...normalizedResumeText.matchAll(/(\d+)\+?\s+years?/g)];
+  if (!matches.length) return { matched: false, years: null };
+  const years = Math.max(...matches.map((match) => Number(match[1]) || 0));
+  return { matched: years >= 1, years };
 }
 
 function estimateMissingConfidence(skill, normalizedResumeText) {
