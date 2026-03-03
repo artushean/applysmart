@@ -12,7 +12,7 @@
       <header>
         <h1>Application Fit and Opportunity Analyzer</h1>
         <p>Make better application decisions in minutes.</p>
-        <p>See your match strength, hiring signals, and application effort in one place.</p>
+        <p>See fit, hiring signals, and opportunity strength in one place.</p>
       </header>
 
       <div class="layout results-hidden" id="main-layout">
@@ -93,34 +93,10 @@
               </div>
 
               <div class="form-field">
-                <label for="cover-letter">Cover letter required</label>
-                <select id="cover-letter" name="coverLetter">
-                  <option value="0">No / optional</option>
-                  <option value="20">Yes, mandatory</option>
-                </select>
-              </div>
-
-              <div class="form-field">
                 <label for="account-required">Account creation required</label>
                 <select id="account-required" name="accountRequired">
                   <option value="0">No</option>
                   <option value="15">Yes</option>
-                </select>
-              </div>
-
-              <div class="form-field">
-                <label for="resume-reentry">Resume re-entry required</label>
-                <select id="resume-reentry" name="resumeReentry">
-                  <option value="0">No</option>
-                  <option value="20">Yes</option>
-                </select>
-              </div>
-
-              <div class="form-field">
-                <label for="external-redirect">External redirect flow</label>
-                <select id="external-redirect" name="externalRedirect">
-                  <option value="0">Direct employer page</option>
-                  <option value="10">Multiple external steps</option>
                 </select>
               </div>
             </div>
@@ -136,7 +112,7 @@
           <h2>Results</h2>
 
           <article class="score-card fit-card">
-            <h3>Fit Score <span class="tooltip-wrap"><button type="button" class="tooltip" aria-label="Fit Score info">?</button><span class="tooltip-text">Prioritizes required skill matches and gives smaller weight to optional skills after normalization.</span></span></h3>
+            <h3>Fit Score <span class="tooltip-wrap"><button type="button" class="tooltip" aria-label="Fit Score info">?</button><span class="tooltip-text">Primary decision factor. Low fit means the role is not recommended regardless of other scores.</span></span></h3>
             <p id="fit-score" class="score-primary">0/100</p>
             <progress id="fit-progress" max="100" value="0"></progress>
             <p id="fit-level" class="score-note"></p>
@@ -151,9 +127,9 @@
           </article>
 
           <article class="score-card">
-            <h3>Application Effort <span class="tooltip-wrap"><button type="button" class="tooltip" aria-label="Application Effort info">?</button><span class="tooltip-text">Shows expected time/friction to apply based on observable form and process steps.</span></span></h3>
-            <p id="effort-level" class="score-secondary">Low</p>
-            <p id="effort-note" class="score-note"></p>
+            <h3>Opportunity Strength <span class="tooltip-wrap"><button type="button" class="tooltip" aria-label="Opportunity Strength info">?</button><span class="tooltip-text">Estimates listing quality and response likelihood. Easy Apply lowers this score because of higher applicant volume.</span></span></h3>
+            <p id="opportunity-level" class="score-secondary">Low</p>
+            <p id="opportunity-note" class="score-note"></p>
           </article>
 
           <h3>Detected Gaps</h3>

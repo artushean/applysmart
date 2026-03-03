@@ -108,17 +108,17 @@ form.addEventListener("submit", async (event) => {
     const comparison = compareSkillSets(jdSkills, resumeSkills);
 
     const hiring = calculateHiringScore(jdRaw);
-    const effort = calculateApplicationEffort();
+    const opportunity = calculateOpportunityStrength(jdRaw);
 
     renderResults({
       fitScore: comparison.fitScore,
       hiringScore: hiring.score,
-      effort,
+      opportunity,
       fitLevel: getFitLevel(comparison.fitScore, comparison.requiredMatchPercent),
       hiringLevel: getHiringLevel(hiring.score),
       gaps: comparison.gaps,
-      signals: [...comparison.notes, ...hiring.notes, ...effort.notes],
-      recommendation: getRecommendation(comparison.fitScore, comparison.requiredMatchPercent, hiring.score, effort.score)
+      signals: [...comparison.notes, ...hiring.notes, ...opportunity.notes],
+      recommendation: getRecommendation(comparison.fitScore, comparison.requiredMatchPercent, hiring.score, opportunity.score)
     });
 
     mainLayout.classList.remove("results-hidden");
@@ -297,25 +297,56 @@ function calculateHiringScore(jobText) {
   return { score: Math.max(0, Math.min(100, 100 - deductions)), notes };
 }
 
-function calculateApplicationEffort() {
+function calculateOpportunityStrength(jobText) {
   const notes = [];
   const easyApply = Number(document.getElementById("easy-apply").value);
-  const coverLetter = Number(document.getElementById("cover-letter").value);
   const accountRequired = Number(document.getElementById("account-required").value);
-  const resumeReentry = Number(document.getElementById("resume-reentry").value);
-  const externalRedirect = Number(document.getElementById("external-redirect").value);
+  const salaryTransparency = Number(document.getElementById("salary-transparency").value);
+  const postingAge = Number(document.getElementById("posting-age").value);
 
-  const score = Math.min(100, easyApply + coverLetter + accountRequired + resumeReentry + externalRedirect);
+  let score = 70;
+  const normalizedJob = normalizeText(jobText);
+  const requirementCount = (normalizedJob.match(/\b(required|must|need to|minimum|at least|preferred)\b/g) || []).length;
+  const redFlagCount = (normalizedJob.match(/\bunpaid|commission only|urgent hire today|wire transfer|pay to apply|confidential salary\b/g) || []).length;
 
-  if (easyApply) notes.push("Easy Apply usually increases crowding and lowers visibility.");
-  if (coverLetter) notes.push("Mandatory cover letter increases application time.");
-  if (accountRequired) notes.push("Account creation adds friction before submission.");
-  if (resumeReentry) notes.push("Manual resume re-entry adds substantial effort.");
-  if (externalRedirect) notes.push("External redirect introduces extra steps.");
+  if (easyApply) {
+    score -= easyApply;
+    notes.push("Easy Apply lowers opportunity strength because it typically increases applicant volume.");
+  }
+
+  if (accountRequired) {
+    score -= 8;
+    notes.push("Account creation introduces friction and can reduce completion rates.");
+  }
+
+  if (salaryTransparency >= 10) {
+    score -= 5;
+    notes.push("Missing salary details slightly reduced Opportunity Strength.");
+  }
+
+  if (postingAge >= 24) {
+    score -= 5;
+    notes.push("Older posting age reduced Opportunity Strength.");
+  }
+
+  if (requirementCount >= 3 && requirementCount <= 20) {
+    score += 8;
+    notes.push("Reasonable requirement depth improved Opportunity Strength.");
+  } else if (requirementCount > 35) {
+    score -= 8;
+    notes.push("Overly long requirement lists may indicate lower response likelihood.");
+  }
+
+  if (redFlagCount > 0) {
+    score -= Math.min(30, redFlagCount * 12);
+    notes.push("Potential red-flag language reduced Opportunity Strength.");
+  }
+
+  score = Math.max(0, Math.min(100, score));
 
   return {
     score,
-    label: getEffortLabel(score),
+    label: getOpportunityLabel(score),
     notes
   };
 }
@@ -336,7 +367,7 @@ function getHiringLevel(score) {
   return "Low hiring activity: older or weaker posting signals.";
 }
 
-function getEffortLabel(score) {
+function getOpportunityLabel(score) {
   if (score >= 60) return "High";
   if (score >= 30) return "Medium";
   return "Low";
@@ -346,10 +377,10 @@ function getRecommendation(fitScore, requiredMatchPercent, hiringScore, effortSc
   if (fitScore < FIT_GATE_THRESHOLD || requiredMatchPercent < 50) {
     return { label: "Not Recommended", tone: "low" };
   }
-  if (fitScore >= 70 && requiredMatchPercent >= 70 && hiringScore >= 65 && effortScore < 60) {
+  if (fitScore >= 70 && requiredMatchPercent >= 70 && hiringScore >= 65 && effortScore >= 60) {
     return { label: "Strong Apply", tone: "high" };
   }
-  if (hiringScore >= 55) {
+  if (hiringScore >= 55 && effortScore >= 40) {
     return { label: "Apply Fast", tone: "med" };
   }
   return { label: "Lower Priority", tone: "low" };
@@ -368,11 +399,11 @@ function normalizeText(text) {
     .trim();
 }
 
-function renderResults({ fitScore, hiringScore, effort, fitLevel, hiringLevel, gaps, signals, recommendation }) {
+function renderResults({ fitScore, hiringScore, opportunity, fitLevel, hiringLevel, gaps, signals, recommendation }) {
   document.getElementById("fit-score").textContent = `${fitScore}/100`;
   document.getElementById("hiring-score").textContent = `${hiringScore}/100`;
-  document.getElementById("effort-level").textContent = effort.label;
-  document.getElementById("effort-note").textContent = `Application effort is ${effort.label.toLowerCase()} (${effort.score}/100 internal score).`;
+  document.getElementById("opportunity-level").textContent = `${opportunity.label} (${opportunity.score}/100)`;
+  document.getElementById("opportunity-note").textContent = `Opportunity Strength is ${opportunity.label.toLowerCase()} based on job-quality and response-likelihood signals.`;
   document.getElementById("fit-progress").value = fitScore;
   document.getElementById("fit-level").textContent = fitLevel;
   document.getElementById("hiring-level").textContent = hiringLevel;
