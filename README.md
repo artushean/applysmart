@@ -74,3 +74,33 @@ It then normalizes all terms (lowercase, punctuation removal, space collapsing) 
 
 - `canonicalToVariations`
 - `variationToCanonical` (optimized lookup map)
+
+## Minimal Python Fit Scoring backend
+
+A small backend implementation now exists under `app/`:
+
+- `app/main.py` - tiny HTTP server with `POST /score`
+- `app/scoring.py` - deterministic weighted scoring logic
+- `app/clusters.py` - small skill cluster adjacency map
+
+Install dependencies:
+
+```bash
+pip install -r app/requirements.txt
+python -m spacy download en_core_web_sm
+```
+
+Run the backend:
+
+```bash
+python app/main.py
+```
+
+Request payload example:
+
+```json
+{
+  "job_description": "Develop automation using Python and Playwright",
+  "resume_text": "Built automation testing frameworks in Python"
+}
+```
